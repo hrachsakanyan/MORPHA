@@ -134,17 +134,22 @@ export function glyph(
   ctx.restore()
 }
 
-export function vertexHandles(ctx: CanvasRenderingContext2D, pts: Array<{ x: number; y: number }>) {
+export function vertexHandles(
+  ctx: CanvasRenderingContext2D,
+  pts: Array<{ x: number; y: number }>,
+  /** The handle under the pointer, drawn filled. Same square, same size. */
+  activeIndex: number | null = null,
+) {
   ctx.save()
   ctx.setLineDash([])
-  for (const p of pts) {
-    ctx.fillStyle = '#0e0b10'
+  pts.forEach((p, i) => {
+    ctx.fillStyle = i === activeIndex ? INK.measured : '#0e0b10'
     ctx.strokeStyle = INK.measured
     ctx.lineWidth = 1.5
     ctx.beginPath()
     ctx.rect(p.x - 3, p.y - 3, 6, 6)
     ctx.fill()
     ctx.stroke()
-  }
+  })
   ctx.restore()
 }

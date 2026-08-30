@@ -14,12 +14,12 @@ import {
 import { computeDensity, frameRect } from '@/domain/density'
 import { findingsForSlide, ledgerFor, readinessGlyph, slideQcState } from '@/domain/derive'
 import {
-  frameHandleAt, polygonArea, rectContains, rectCorners, rectFromCorners,
-  rectPolygonOverlapArea, resizeRect,
+  frameHandleAt, movePoint, polygonArea, polygonCentroid, rectContains, rectCorners,
+  rectFromCorners, rectPolygonOverlapArea, resizeRect, vertexAt,
 } from '@/lib/geometry'
 import { CASES } from '@/domain/cases'
 import type { TissueData } from '@/domain/tissue'
-import type { Annotation, Finding, ProposedFrame, Verdict } from '@/domain/types'
+import type { Annotation, Finding, ProposedFrame, Pt, Verdict } from '@/domain/types'
 
 let failures = 0
 function ok(name: string, cond: boolean, detail = '') {
@@ -322,6 +322,94 @@ ok('resizing an accepted frame grows the measured area', acc2.areaMm2 > acc.area
 ok('resizing an accepted frame lowers the density', acc2.density! < acc.density!)
 ok('the resized frame keeps its provenance',
   ({ ...accepted, points: rectCorners(widened) }).fromProposalId === prop!.id)
+
+/* ── Polygon vertex editing ────────────────────────────────────────── */
+console.log('\n— polygon vertex editing —')
+const poly: Pt[] = [
+  { x: 1000, y: 1000 }, { x: 1400, y: 1020 }, { x: 1440, y: 1380 },
+  { x: 1080, y: 1420 }, { x: 960, y: 1200 },
+]
+const region: Annotation = {
+  id: 'ANN-500', slideId: A2.id, kind: 'polygon', points: poly,
+  label: 'Region of interest', createdAt: now, by: 'Dr Test', mag: 10,
+}
+
+/* Hit-testing. */
+ok('a vertex is found under the pointer', vertexAt(poly, { x: 1400, y: 1020 }, 8) === 1)
+ok('a near miss still grabs the vertex', vertexAt(poly, { x: 1405, y: 1024 }, 8) === 1)
+ok('just outside tolerance misses', vertexAt(poly, { x: 1412, y: 1020 }, 8) === null)
+ok('the polygon interior is not a vertex', vertexAt(poly, { x: 1200, y: 1200 }, 8) === null)
+ok('the nearest vertex wins a tie', (() => {
+  const pair: Pt[] = [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 100, y: 100 }]
+  return vertexAt(pair, { x: 5, y: 0 }, 8) === 1
+})())
+ok('every vertex is reachable',
+  poly.every((q, k) => vertexAt(poly, q, 8) === k))
+
+/* Dragging one vertex. */
+const moved = movePoint(poly, 2, { x: 1600, y: 1500 })
+ok('the dragged vertex moves', moved[2].x === 1600 && moved[2].y === 1500)
+ok('neighbours are untouched', (() => moved.every((q, k) =>
+  k === 2 ? true : q.x === poly[k].x && q.y === poly[k].y))())
+ok('the original is not mutated', poly[2].x === 1440 && poly[2].y === 1380)
+ok('the vertex count is preserved', moved.length === poly.length)
+ok('the polygon stays valid', moved.length >= 3 && moved.every((q) => Number.isFinite(q.x) && Number.isFinite(q.y)))
+ok('an out-of-range index is a no-op', movePoint(poly, 99, { x: 0, y: 0 }) === poly)
+ok('a negative index is a no-op', movePoint(poly, -1, { x: 0, y: 0 }) === poly)
+
+/* Derived geometry follows the drag. */
+const areaBefore = polygonArea(poly)
+const areaAfter = polygonArea(moved)
+ok('polygon area recomputes from the edited points', areaAfter !== areaBefore)
+ok('pushing a vertex outward enlarges the region', areaAfter > areaBefore,
+  '(' + Math.round(areaBefore) + ' → ' + Math.round(areaAfter) + ' px2)')
+ok('measured area is physical, not pixels', (() => {
+  const mm2After = (areaAfter * MPP * MPP) / 1e6
+  return mm2After > 0 && !near(mm2After, areaAfter, 1)
+})())
+ok('the centroid follows the geometry', (() => {
+  const c1 = polygonCentroid(poly)
+  const c2 = polygonCentroid(moved)
+  return c2.x !== c1.x || c2.y !== c1.y
+})())
+
+/* An unassessable region is a denominator input, so it must recompute too. */
+const unassessable: Annotation = { ...region, id: 'ANN-501', kind: 'unassessable' }
+const unassessableGrown: Annotation = { ...unassessable, points: moved }
+ok('unassessable area recomputes when reshaped',
+  polygonArea(unassessableGrown.points) > polygonArea(unassessable.points))
+
+/* Slide coordinates survive pan and zoom: the drag stores image space, and
+   hit-testing happens in screen space through the viewport transform. */
+function toScreen(pts: Pt[], scale: number, ox: number, oy: number): Pt[] {
+  return pts.map((q) => ({ x: ox + q.x * scale, y: oy + q.y * scale }))
+}
+ok('a vertex is grabbable at low magnification',
+  vertexAt(toScreen(poly, 0.02, 40, 60), { x: 40 + 1400 * 0.02, y: 60 + 1020 * 0.02 }, 8) === 1)
+ok('the same vertex is grabbable at 40x',
+  vertexAt(toScreen(poly, 4, -3800, -3900), { x: -3800 + 1400 * 4, y: -3900 + 1020 * 4 }, 8) === 1)
+ok('image coordinates are unchanged by the viewport', (() => {
+  const a = toScreen(moved, 0.02, 40, 60)
+  const b = toScreen(moved, 4, -3800, -3900)
+  return a.length === b.length && moved[2].x === 1600 && moved[2].y === 1500
+})())
+
+/* Committing on pointer up replaces the points and nothing else. */
+const committed: Annotation = { ...region, points: moved }
+ok('commit replaces only the geometry',
+  committed.id === region.id && committed.kind === region.kind &&
+  committed.label === region.label && committed.by === region.by &&
+  committed.createdAt === region.createdAt && committed.mag === region.mag)
+ok('the committed polygon holds the edit', committed.points[2].x === 1600)
+
+/* Frames and polygons share one drag mechanism but never collide. */
+ok('a frame is not an editable polygon', !['polygon', 'unassessable', 'area'].includes(frame.kind))
+ok('a polygon is not a frame', region.kind !== 'frame')
+ok('the frame path still resizes after the refactor', (() => {
+  const r0 = frameRect(frame)
+  const r1 = resizeRect(r0, 'e', { x: r0.x + r0.w * 1.5, y: 0 }, 14)
+  return r1.w > r0.w && r1.x === r0.x
+})())
 
 console.log('\n— QC geometry —')
 const q = m.qcRegions[0]

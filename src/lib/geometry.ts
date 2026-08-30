@@ -159,3 +159,34 @@ export function resizeRect(r: Rect, handle: FrameHandle, p: Pt, min = 1): Rect {
 export function rectCorners(r: Rect): [Pt, Pt] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y + r.h }]
 }
+
+/* ── Polygon vertex editing ─────────────────────────────────────────── */
+
+/**
+ * Index of the vertex under `p`, or null. `tol` is in the same units as the
+ * points, so callers working in screen space get a grab zone that stays a
+ * constant size on the display at every magnification.
+ *
+ * Ties go to the nearest vertex, which matters where a polygon doubles back on
+ * itself and two handles sit within a few pixels of each other.
+ */
+export function vertexAt(points: Pt[], p: Pt, tol: number): number | null {
+  let best: { i: number; d: number } | null = null
+  for (let i = 0; i < points.length; i++) {
+    const d = Math.hypot(points[i].x - p.x, points[i].y - p.y)
+    if (d <= tol && (!best || d < best.d)) best = { i, d }
+  }
+  return best ? best.i : null
+}
+
+/**
+ * A copy of `points` with one vertex moved. Every other vertex is carried
+ * across by identity, so a drag can never perturb a neighbour, and the vertex
+ * count — and therefore the polygon's validity — is preserved by construction.
+ */
+export function movePoint(points: Pt[], index: number, p: Pt): Pt[] {
+  if (index < 0 || index >= points.length) return points
+  const next = points.slice()
+  next[index] = { x: p.x, y: p.y }
+  return next
+}

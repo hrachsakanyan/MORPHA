@@ -85,21 +85,21 @@ export function useWorkspace(caseId: string | undefined): Workspace {
   )
 
   /**
-   * A counting frame mid-resize reads from the transient drag rather than the
-   * session (§I.4). Every consumer — the microscope overlay, the slide map and
-   * the density fraction — draws from this one list, so the denominator and the
-   * geometry cannot disagree while the pointer is down.
+   * Geometry mid-drag reads from the transient drag rather than the session —
+   * a counting frame edge (§I.4) or a polygon vertex. Every consumer draws from
+   * this one list, so the overlay, the density fraction and the unassessable
+   * area cannot disagree with each other while the pointer is down.
    */
-  const frameDrag = useUi((s) => s.frameDrag)
+  const geoDrag = useUi((s) => s.geometryDrag)
 
   const annotations = useMemo(() => {
     if (!session || !slide) return []
     const own = session.annotations.filter((a) => a.slideId === slide.id)
-    if (!frameDrag) return own
+    if (!geoDrag) return own
     return own.map(
-      (a) => (a.id === frameDrag.annotationId ? { ...a, points: frameDrag.points } : a),
+      (a) => (a.id === geoDrag.annotationId ? { ...a, points: geoDrag.points } : a),
     )
-  }, [session, slide, frameDrag])
+  }, [session, slide, geoDrag])
 
   /**
    * The denominator loses automated QC that is still standing, plus any area the

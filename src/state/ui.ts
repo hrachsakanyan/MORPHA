@@ -37,14 +37,14 @@ export interface Draft {
 }
 
 /**
- * A counting frame being resized (§I.4). The geometry lives here, not in the
- * session, so the denominator can update on every pointer move without writing
- * a hundred states to storage or burying the geometry undo stack. It is
- * committed to the session once, on pointer up.
+ * Authored geometry being dragged — a counting frame edge (§I.4) or a polygon
+ * vertex. The points live here, not in the session, so anything derived from
+ * them can update on every pointer move without writing a hundred states to
+ * storage or burying the geometry undo stack. Committed once, on pointer up.
  */
-export interface FrameDrag {
+export interface GeometryDrag {
   annotationId: string
-  points: [Pt, Pt]
+  points: Pt[]
 }
 
 interface UiState {
@@ -68,8 +68,8 @@ interface UiState {
   draft: Draft | null
   setDraft: (d: Draft | null) => void
 
-  frameDrag: FrameDrag | null
-  setFrameDrag: (d: FrameDrag | null) => void
+  geometryDrag: GeometryDrag | null
+  setGeometryDrag: (d: GeometryDrag | null) => void
 
   holdClear: boolean
   setHoldClear: (v: boolean) => void
@@ -122,8 +122,8 @@ export const useUi = create<UiState>((set) => ({
   draft: null,
   setDraft: (d) => set({ draft: d }),
 
-  frameDrag: null,
-  setFrameDrag: (d) => set({ frameDrag: d }),
+  geometryDrag: null,
+  setGeometryDrag: (d) => set({ geometryDrag: d }),
 
   holdClear: false,
   setHoldClear: (v) => set({ holdClear: v }),
@@ -156,7 +156,7 @@ export const useUi = create<UiState>((set) => ({
       activeClusterId: null,
       chipStrip: null,
       draft: null,
-      frameDrag: null,
+      geometryDrag: null,
       holdClear: false,
       selectedFrameId: null,
       focusedFindingIds: [],

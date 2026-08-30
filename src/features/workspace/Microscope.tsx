@@ -7,8 +7,8 @@ import { markViewport } from '@/domain/coverage'
 import { formatArea, formatDistance, frameRect } from '@/domain/density'
 import { latestVerdicts } from '@/domain/derive'
 import {
-  dist, frameHandleAt, polygonArea, polygonCentroid, rectCorners, rectFromCorners, resizeRect,
-  type FrameHandle,
+  dist, frameHandleAt, movePoint, pointInPolygon, polygonArea, polygonCentroid, rectCorners,
+  rectFromCorners, resizeRect, vertexAt, type FrameHandle,
 } from '@/lib/geometry'
 import { useSessions } from '@/state/store'
 import { useUi } from '@/state/ui'
@@ -26,6 +26,18 @@ interface FailedTile { level: number; x: number; y: number }
 const HANDLE_TOL = 7
 /** A frame may not be dragged below this on screen; the denominator must stay real. */
 const MIN_FRAME_PX = 14
+/** Vertex handles are 6px squares; this is a comfortable ring around one. */
+const VERTEX_TOL = 8
+/** Annotation kinds whose vertices can be dragged. */
+const EDITABLE_POLYGONS = new Set(['polygon', 'unassessable', 'area'])
+
+/**
+ * What the pointer has hold of. Frames resize by edge, polygons by vertex —
+ * one mechanism, so the two cannot diverge.
+ */
+type Grab =
+  | { kind: 'frame'; id: string; handle: FrameHandle }
+  | { kind: 'vertex'; id: string; index: number }
 
 const HANDLE_CURSOR: Record<FrameHandle, string> = {
   n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
@@ -60,9 +72,9 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     setAnchorState(next)
   }, [])
 
-  /** Which frame handle the pointer is over, in screen space (§I.4). */
-  const [hoverHandle, setHoverHandle] = useState<FrameHandle | null>(null)
-  const dragRef = useRef<{ id: string; handle: FrameHandle; from: ReturnType<typeof frameRect> } | null>(null)
+  /** What the pointer is over, hit-tested in screen space. */
+  const [hoverGrab, setHoverGrab] = useState<Grab | null>(null)
+  const dragRef = useRef<{ grab: Grab; from: Pt[] } | null>(null)
 
   const slide = ws.slide
   const dzi = slide?.dzi ?? null
@@ -465,10 +477,10 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
         drawCornerTicks(ctx, r, colour)
         // The edge under the pointer thickens. No new handle is introduced —
         // the affordance is the frame's own stroke, plus the resize cursor.
-        const hov = a.id === resizableRef.current?.id
-          ? (dragRef.current?.handle ?? hoverRef.current)
-          : null
-        if (hov) drawHandleEmphasis(ctx, r, hov, colour)
+        const g = dragRef.current?.grab ?? hoverRef.current
+        if (g && g.kind === 'frame' && g.id === a.id) {
+          drawHandleEmphasis(ctx, r, g.handle, colour)
+        }
         ctx.restore()
         if (mpp) {
           const ir = frameRect(a)
@@ -510,7 +522,10 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
             : a.label
           label(ctx, text, t.sx(c.x), t.sy(c.y), colour, 'center')
         }
-        if (selected) vertexHandles(ctx, pts)
+        if (selected) {
+          const g = dragRef.current?.grab ?? hoverRef.current
+          vertexHandles(ctx, pts, g && g.kind === 'vertex' && g.id === a.id ? g.index : null)
+        }
       }
     }
 
@@ -596,10 +611,23 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     return ws.frames.find((f) => f.id === ui.selectedFrameId) ?? null
   }, [drawing, ws.measurementEnabled, ws.readOnly, ws.frames, ui.selectedFrameId])
 
+  /**
+   * The selected polygon, if it is a kind whose vertices can be moved. Uses the
+   * same selection the vertex handles already render from, so the handles that
+   * appear are exactly the handles that can be grabbed.
+   */
+  const editablePolygon = useMemo(() => {
+    if (drawing || ws.readOnly) return null
+    const a = ws.annotations.find((n) => n.id === ui.selectedFrameId)
+    return a && EDITABLE_POLYGONS.has(a.kind) ? a : null
+  }, [drawing, ws.readOnly, ws.annotations, ui.selectedFrameId])
+
   const resizableRef = useRef(resizableFrame)
   resizableRef.current = resizableFrame
-  const hoverRef = useRef<FrameHandle | null>(hoverHandle)
-  hoverRef.current = hoverHandle
+  const polygonRef = useRef(editablePolygon)
+  polygonRef.current = editablePolygon
+  const hoverRef = useRef<Grab | null>(hoverGrab)
+  hoverRef.current = hoverGrab
 
   /**
    * Hover is tracked on the container rather than the overlay, because the
@@ -611,19 +639,31 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     if (!root) return
     const onMove = (e: PointerEvent) => {
       if (dragRef.current) return
-      const f = resizableRef.current
       const t = transform()
-      if (!f || !t) { setHoverHandle(null); return }
+      if (!t) { setHoverGrab(null); return }
       const box = root.getBoundingClientRect()
-      const r = frameRect(f)
-      const screen = {
-        x: t.sx(r.x), y: t.sy(r.y), w: r.w * t.scale, h: r.h * t.scale,
+      const at = { x: e.clientX - box.left, y: e.clientY - box.top }
+
+      // A polygon vertex is a smaller, more specific target than a frame edge,
+      // so it is tested first where both could match.
+      const poly = polygonRef.current
+      if (poly) {
+        const i = vertexAt(
+          poly.points.map((q) => ({ x: t.sx(q.x), y: t.sy(q.y) })), at, VERTEX_TOL,
+        )
+        if (i !== null) { setHoverGrab({ kind: 'vertex', id: poly.id, index: i }); return }
       }
-      setHoverHandle(
-        frameHandleAt(screen, { x: e.clientX - box.left, y: e.clientY - box.top }, HANDLE_TOL),
-      )
+
+      const f = resizableRef.current
+      if (f) {
+        const r = frameRect(f)
+        const screen = { x: t.sx(r.x), y: t.sy(r.y), w: r.w * t.scale, h: r.h * t.scale }
+        const h = frameHandleAt(screen, at, HANDLE_TOL)
+        if (h) { setHoverGrab({ kind: 'frame', id: f.id, handle: h }); return }
+      }
+      setHoverGrab(null)
     }
-    const onLeave = () => { if (!dragRef.current) setHoverHandle(null) }
+    const onLeave = () => { if (!dragRef.current) setHoverGrab(null) }
     root.addEventListener('pointermove', onMove)
     root.addEventListener('pointerleave', onLeave)
     return () => {
@@ -632,10 +672,10 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     }
   }, [transform])
 
-  // A frame that stops being resizable must not leave a stale resize cursor.
+  // Geometry that stops being editable must not leave a stale cursor behind.
   useEffect(() => {
-    if (!resizableFrame && hoverHandle) setHoverHandle(null)
-  }, [resizableFrame, hoverHandle])
+    if (!resizableFrame && !editablePolygon && hoverGrab) setHoverGrab(null)
+  }, [resizableFrame, editablePolygon, hoverGrab])
 
   const toImage = useCallback((clientX: number, clientY: number): Pt | null => {
     const viewer = viewerRef.current
@@ -687,15 +727,17 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   }, [caseId, addAnnotation])
 
   const onPointerDown = (e: React.PointerEvent) => {
-    /* Reshaping an existing frame (§I.4). */
-    const f = resizableFrame
-    if (f && hoverHandle) {
-      e.preventDefault()
-      e.currentTarget.setPointerCapture(e.pointerId)
-      dragRef.current = { id: f.id, handle: hoverHandle, from: frameRect(f) }
-      viewerRef.current?.setMouseNavEnabled(false)
-      ui.setFrameDrag({ annotationId: f.id, points: rectCorners(frameRect(f)) })
-      return
+    /* Reshaping existing geometry — a frame edge (§I.4) or a polygon vertex. */
+    if (hoverGrab) {
+      const target = hoverGrab.kind === 'frame' ? resizableFrame : editablePolygon
+      if (target && target.id === hoverGrab.id) {
+        e.preventDefault()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        dragRef.current = { grab: hoverGrab, from: target.points.map((q) => ({ ...q })) }
+        viewerRef.current?.setMouseNavEnabled(false)
+        ui.setGeometryDrag({ annotationId: target.id, points: target.points.map((q) => ({ ...q })) })
+        return
+      }
     }
 
     if (!drawing || !toolId) return
@@ -723,18 +765,28 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
-    const resize = dragRef.current
-    if (resize) {
+    const active = dragRef.current
+    if (active) {
       const p = toImage(e.clientX, e.clientY)
       const t = transform()
       if (!p) return
-      // The floor is a constant on screen, so the frame stays grabbable at 40x
-      // without becoming unusably coarse at 2x.
-      const min = t ? MIN_FRAME_PX / t.scale : 1
-      ui.setFrameDrag({
-        annotationId: resize.id,
-        points: rectCorners(resizeRect(resize.from, resize.handle, p, min)),
-      })
+      if (active.grab.kind === 'frame') {
+        // The floor is a constant on screen, so the frame stays grabbable at 40x
+        // without becoming unusably coarse at 2x.
+        const min = t ? MIN_FRAME_PX / t.scale : 1
+        const from = rectFromCorners(active.from[0], active.from[1])
+        ui.setGeometryDrag({
+          annotationId: active.grab.id,
+          points: rectCorners(resizeRect(from, active.grab.handle, p, min)),
+        })
+      } else {
+        // Only the grabbed vertex moves; every neighbour is carried across
+        // unchanged, so the vertex count — and the polygon — stays valid.
+        ui.setGeometryDrag({
+          annotationId: active.grab.id,
+          points: movePoint(active.from, active.grab.index, p),
+        })
+      }
       return
     }
 
@@ -748,18 +800,22 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   const endResize = (commit: boolean) => {
     const d = dragRef.current
     if (!d) return
-    const live = uiRef.current.frameDrag
+    const live = uiRef.current.geometryDrag
     dragRef.current = null
     viewerRef.current?.setMouseNavEnabled(!drawing)
-    if (commit && live && live.annotationId === d.id) {
-      reshapeAnnotation(caseId, d.id, live.points)
+    if (commit && live && live.annotationId === d.grab.id) {
+      reshapeAnnotation(caseId, d.grab.id, live.points)
       const s = wsRef.current.slide
       if (s?.mpp) {
-        const r = rectFromCorners(live.points[0], live.points[1])
-        uiRef.current.announce(`Counting frame resized to ${formatArea(r.w * r.h, s.mpp)}`)
+        if (d.grab.kind === 'frame') {
+          const r = rectFromCorners(live.points[0], live.points[1])
+          uiRef.current.announce(`Counting frame resized to ${formatArea(r.w * r.h, s.mpp)}`)
+        } else {
+          uiRef.current.announce(`Region reshaped to ${formatArea(polygonArea(live.points), s.mpp)}`)
+        }
       }
     }
-    ui.setFrameDrag(null)
+    ui.setGeometryDrag(null)
   }
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -828,6 +884,15 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
         useSessions.getState().setPanel(caseId, 'density')
         return
       }
+
+      // Selecting a marked region raises its vertex handles for adjustment.
+      const region = W.annotations.find(
+        (n) => EDITABLE_POLYGONS.has(n.kind) && n.points.length >= 3 && pointInPolygon(p, n.points),
+      )
+      if (region) {
+        U.setSelectedFrame(region.id)
+        return
+      }
       U.setFocusedCandidate(null)
     }
     viewer.addHandler('canvas-click', handler)
@@ -836,12 +901,12 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   }, [ready, caseId, transform])
 
   const cursor = useMemo(() => {
-    const active = dragRef.current?.handle ?? hoverHandle
-    if (active) return HANDLE_CURSOR[active]
+    const g = dragRef.current?.grab ?? hoverGrab
+    if (g) return g.kind === 'frame' ? HANDLE_CURSOR[g.handle] : 'move'
     if (!drawing) return 'default'
     if (toolId === 'text') return 'text'
     return 'crosshair'
-  }, [drawing, toolId, hoverHandle])
+  }, [drawing, toolId, hoverGrab])
 
   if (!dzi) {
     return (
@@ -870,7 +935,7 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
         onDoubleClick={onDoubleClick}
         style={{
           position: 'absolute', inset: 0,
-          pointerEvents: drawing || hoverHandle || dragRef.current ? 'auto' : 'none',
+          pointerEvents: drawing || hoverGrab || dragRef.current ? 'auto' : 'none',
           cursor,
         }}
       />
