@@ -1,7 +1,8 @@
+import { REVIEW_MAG } from './constants'
 import { gaussian, mulberry32 } from '@/lib/rng'
 import { boundsOf, pointInPolygon, polygonArea } from '@/lib/geometry'
 import type {
-  Candidate, CandidateType, Cluster, Pt, QcRegion, QcState, ScoreBand, SlideDef,
+  Candidate, CandidateType, Cluster, Pt, ProposedFrame, QcRegion, QcState, ScoreBand, SlideDef,
 } from './types'
 import type { TissueData } from './tissue'
 
@@ -21,10 +22,13 @@ export interface SlideModelOutput {
   byId: Map<string, Candidate>
   /** Fraction of tissue area flagged unassessable by scan QC. */
   unassessableFraction: number
+  /** A hotspot counting frame the model offers (§I.5). Never a measurement. */
+  proposedFrame: ProposedFrame | null
 }
 
 const EMPTY: SlideModelOutput = {
   candidates: [], clusters: [], qcRegions: [], byId: new Map(), unassessableFraction: 0,
+  proposedFrame: null,
 }
 
 /** Fixed clinical sort order (D.2). Never sorted by model score. */
@@ -85,7 +89,11 @@ function generate(slide: SlideDef, tissue: TissueData): SlideModelOutput {
 
   const hasCandidates = slide.analysis === 'complete' || slide.analysis === 'partially_analyzed'
   if (!hasCandidates || !slide.synth || cells.length === 0) {
-    return { candidates: [], clusters: [], qcRegions, byId: new Map(), unassessableFraction }
+    // No analysis, no candidates, and therefore no hotspot to frame.
+    return {
+      candidates: [], clusters: [], qcRegions, byId: new Map(), unassessableFraction,
+      proposedFrame: null,
+    }
   }
 
   const mpp = slide.mpp ?? 0.25
@@ -158,7 +166,44 @@ function generate(slide: SlideDef, tissue: TissueData): SlideModelOutput {
   clusters.forEach((c, i) => { c.rank = i + 1 })
 
   const byId = new Map(candidates.map((c) => [c.id, c]))
-  return { candidates, clusters, qcRegions, byId, unassessableFraction }
+  return {
+    candidates, clusters, qcRegions, byId, unassessableFraction,
+    proposedFrame: proposeHotspotFrame(slide, clusters),
+  }
+}
+
+/**
+ * The frame the model offers around the mitotic hotspot (§I.5).
+ *
+ * Derived from the cluster bounds by fixed arithmetic rather than from the
+ * random stream, so it is stable for a slide and adding it cannot perturb any
+ * candidate, cluster or QC region generated above.
+ *
+ * Only a mitotic hotspot earns a proposal: the frame exists to serve a mitotic
+ * count, and framing an apoptotic cluster would propose a denominator for a
+ * measurement nobody is making.
+ */
+function proposeHotspotFrame(slide: SlideDef, clusters: Cluster[]): ProposedFrame | null {
+  const hotspot = clusters.find((c) => c.type === 'mitotic_figure')
+  if (!hotspot || hotspot.candidateIds.length < 2) return null
+
+  // A counting frame is square by convention, sized to contain the hotspot with
+  // a margin, and clamped inside the slide.
+  const b = hotspot.bounds
+  const side = Math.max(b.w, b.h) * 1.18
+  const cx = b.x + b.w / 2
+  const cy = b.y + b.h / 2
+  const half = side / 2
+  const x0 = Math.max(0, Math.min(cx - half, slide.width - side))
+  const y0 = Math.max(0, Math.min(cy - half, slide.height - side))
+
+  return {
+    id: `${slide.id}-proposed-frame`,
+    slideId: slide.id,
+    points: [{ x: x0, y: y0 }, { x: x0 + side, y: y0 + side }],
+    clusterId: hotspot.id,
+    mag: REVIEW_MAG,
+  }
 }
 
 function pickInteriorCell(tissue: TissueData, cells: number[], rand: () => number): Pt {

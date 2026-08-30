@@ -421,6 +421,26 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
       }
     }
 
+    /*
+     * The model's proposed counting frame (§I.5). Violet, dashed, and carrying
+     * no number — not even its own area, because an area is a denominator and a
+     * denominator is the one thing this product insists a human authored. It
+     * rides the cluster layer because it is the hotspot cluster's frame.
+     */
+    const proposed = W.proposedFrame
+    if (proposed && layers.clusters) {
+      const a = { x: t.sx(proposed.points[0].x), y: t.sy(proposed.points[0].y) }
+      const b = { x: t.sx(proposed.points[1].x), y: t.sy(proposed.points[1].y) }
+      const r = rectFromCorners(a, b)
+      ctx.save()
+      ctx.strokeStyle = INK.inferred
+      ctx.lineWidth = STROKE.authored
+      setDash(ctx, 'dashed')
+      ctx.strokeRect(r.x, r.y, r.w, r.h)
+      ctx.restore()
+      label(ctx, 'Proposed counting frame', r.x, r.y - 12, INK.inferred)
+    }
+
     /* Authored geometry — heaviest stroke, the only vertex handles in the system. */
     for (const a of W.annotations) {
       if (a.kind === 'point') continue

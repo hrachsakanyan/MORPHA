@@ -107,6 +107,29 @@ export interface Cluster {
   qcAffectedCount: number
 }
 
+/**
+ * A counting frame the model proposes around a hotspot (§I.5).
+ *
+ * This is model output, exactly like a Candidate: deterministic, seeded, and
+ * carrying no authority. It is deliberately NOT an Annotation — an Annotation
+ * is authored geometry with a person's name on it, and representing a proposal
+ * as one that merely renders in a different colour would put an unverified
+ * area at the heart of the only quantity MORPHA claims is measured.
+ *
+ * It produces no number. On acceptance a real Annotation is authored in the
+ * reader's name, carrying `fromProposalId` so the provenance survives.
+ */
+export interface ProposedFrame {
+  id: string
+  slideId: string
+  /** Two opposite corners — the same shape a frame Annotation stores. */
+  points: [Pt, Pt]
+  /** The cluster the frame was proposed around. */
+  clusterId: string
+  /** Magnification the proposal is framed for; the accepted frame inherits it. */
+  mag: number
+}
+
 export interface QcRegion {
   id: string
   slideId: string
@@ -158,6 +181,12 @@ export interface Annotation {
   by: string
   /** Magnification at which it was authored — fly-back restores this. */
   mag: number
+  /**
+   * Set when this frame began as a model proposal the reader accepted (§I.5).
+   * The frame is human-authored from that moment — `by` is the pathologist —
+   * but the ledger keeps the fact that a machine drew it first.
+   */
+  fromProposalId?: string
 }
 
 /** Derived from verdicts and point annotations. Never stored. */

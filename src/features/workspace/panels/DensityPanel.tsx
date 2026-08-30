@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { computeDensity } from '@/domain/density'
+import { rectFromCorners } from '@/lib/geometry'
 import { latestVerdicts } from '@/domain/derive'
 import { absoluteDate, mm2, timeHM, typeLabel } from '@/lib/format'
 import { Button, Notice } from '@/components/ui'
@@ -19,9 +20,32 @@ export function DensityPanel({ ws, caseId }: { ws: Workspace; caseId: string }) 
   const ui = useUi()
   const setTool = useSessions((s) => s.setTool)
   const setSpatial = useSessions((s) => s.setSpatial)
+  const addAnnotation = useSessions((s) => s.addAnnotation)
 
   const slide = ws.slide
   if (!slide) return null
+
+  /**
+   * Accepting a proposal (§I.5) authors a real frame in the reader's name. The
+   * proposal is not mutated or recoloured — it is withdrawn, and a
+   * pathologist-authored counting frame stands in its place, carrying
+   * `fromProposalId` so the ledger keeps who drew it first.
+   */
+  const acceptProposal = () => {
+    const p = ws.proposedFrame
+    if (!p) return
+    const n = ws.frames.length + 1
+    const created = addAnnotation(caseId, {
+      slideId: slide.id,
+      kind: 'frame',
+      points: [{ ...p.points[0] }, { ...p.points[1] }],
+      label: `Counting frame ${n}`,
+      mag: p.mag,
+      fromProposalId: p.id,
+    })
+    ui.setSelectedFrame(created.id)
+    ui.announce('Proposed frame accepted. It is now your counting frame and can be adjusted.')
+  }
 
   if (!ws.measurementEnabled || !slide.mpp) {
     return (
@@ -44,12 +68,41 @@ export function DensityPanel({ ws, caseId }: { ws: Workspace; caseId: string }) 
 
   const cluster = ws.clusters.find((c) => c.id === ui.activeClusterId)
 
+  /* One action, and no number of any kind until it is taken. */
+  const proposal = ws.proposedFrame && (
+    <Notice tone="inferred" title="Model-proposed counting frame">
+      The model proposes a frame around the mitotic hotspot. It produces no
+      density and no denominator: a machine-proposed area cannot stand at the
+      centre of the one quantity MORPHA asserts is measured.
+      <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <Button variant="primary" onClick={acceptProposal}>Accept frame</Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setSpatial(caseId, slide.id, 'inspection')
+            ui.flyTo({
+              slideId: slide.id,
+              target: {
+                kind: 'rect',
+                rect: rectFromCorners(ws.proposedFrame!.points[0], ws.proposedFrame!.points[1]),
+              },
+              animate: true,
+            })
+          }}
+        >
+          Show
+        </Button>
+      </div>
+    </Notice>
+  )
+
   if (!frame) {
     // With no frame the panel shows the confirmed count and states plainly that
     // density is unavailable. Never a zero, a dash or a provisional value.
     const confirmedMitoses = ws.findings.filter((f) => f.type === 'mitotic_figure').length
     return (
       <div className="density">
+        {proposal}
         <Notice tone="advisory" title="No counting frame">
           <div className="mono" style={{ color: 'var(--text)', margin: '6px 0' }}>
             Confirmed mitoses on this slide: {confirmedMitoses}
@@ -96,6 +149,7 @@ export function DensityPanel({ ws, caseId }: { ws: Workspace; caseId: string }) 
 
   return (
     <div className="density">
+      {proposal}
       {ws.frames.length > 1 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {ws.frames.map((f) => (
@@ -175,7 +229,12 @@ export function DensityPanel({ ws, caseId }: { ws: Workspace; caseId: string }) 
         </div>
         <div className="trace__row">
           <span className="trace__k">Author</span>
-          <span>{frame.by}</span>
+          <span>
+            {frame.by}
+            {frame.fromProposalId && (
+              <span style={{ color: 'var(--text-faint)' }}> · accepted from a model proposal</span>
+            )}
+          </span>
           <span />
         </div>
       </div>

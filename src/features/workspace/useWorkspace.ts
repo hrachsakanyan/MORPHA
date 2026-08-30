@@ -9,7 +9,7 @@ import { useSessions } from '@/state/store'
 import { useUi } from '@/state/ui'
 import * as registry from '@/state/coverageRegistry'
 import type {
-  Annotation, CaseDef, CaseSession, Cluster, Finding, QcRegion, QcState,
+  Annotation, CaseDef, CaseSession, Cluster, Finding, ProposedFrame, QcRegion, QcState,
   SlideDef, SlideSessionState,
 } from '@/domain/types'
 
@@ -39,6 +39,12 @@ export interface Workspace {
   clusters: ClusterView[]
   annotations: Annotation[]
   frames: Annotation[]
+  /**
+   * The model's hotspot frame, or null once it has been accepted, is suppressed
+   * by Read-First, or was never offered (§I.5). It is never a member of
+   * `frames` — only authored geometry is, and only authored geometry measures.
+   */
+  proposedFrame: ProposedFrame | null
   /** MPP is present and plausible — every measurement affordance depends on this. */
   measurementEnabled: boolean
   readOnly: boolean
@@ -67,6 +73,7 @@ export function useWorkspace(caseId: string | undefined): Workspace {
   const model = useMemo(
     () => (slide ? modelOutput(slide, tissue.state === 'ready' ? tissue.data : null) : {
       candidates: [], clusters: [], qcRegions: [], byId: new Map(), unassessableFraction: 0,
+      proposedFrame: null,
     } as SlideModelOutput),
     [slide, tissue],
   )
@@ -159,6 +166,20 @@ export function useWorkspace(caseId: string | undefined): Workspace {
 
   const frames = useMemo(() => annotations.filter((a) => a.kind === 'frame'), [annotations])
 
+  /**
+   * A proposal is inferred output and passes through the same Read-First gate
+   * as every other inferred overlay: it cannot appear before the reader has
+   * formed their own impression. Once accepted it is withdrawn, because the
+   * authored frame it produced now stands in its place.
+   */
+  const proposedFrame = useMemo(() => {
+    const p = model.proposedFrame
+    if (!p) return null
+    if (!slideSession?.revealed) return null
+    if (annotations.some((a) => a.fromProposalId === p.id)) return null
+    return p
+  }, [model.proposedFrame, slideSession?.revealed, annotations])
+
   const qcState = useMemo(
     () => qcStateOf({ ...model, unassessableFraction }, dismissedQcIds),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,7 +226,7 @@ export function useWorkspace(caseId: string | undefined): Workspace {
   return {
     def, session, slide, slideSession, tissue, model, qcRegions, qcState,
     unassessableFraction, coverage, grid, findings, ledger, clusters, annotations,
-    frames, measurementEnabled,
+    frames, proposedFrame, measurementEnabled,
     readOnly: session?.status === 'finalized',
     refreshCoverage,
   }

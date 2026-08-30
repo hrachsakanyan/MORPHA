@@ -222,6 +222,7 @@ export function RecordPage() {
                   </button>
                   <span className="mono rec__meta">
                     {a.slideId.split('.').pop()} · {a.by} · {timeHM(a.createdAt)}
+                    {a.fromProposalId && ' · from model proposal'}
                   </span>
                 </div>
               ))}

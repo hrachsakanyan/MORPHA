@@ -14,11 +14,12 @@ import {
 import { computeDensity, frameRect } from '@/domain/density'
 import { findingsForSlide, ledgerFor, readinessGlyph, slideQcState } from '@/domain/derive'
 import {
-  frameHandleAt, polygonArea, rectCorners, rectPolygonOverlapArea, resizeRect,
+  frameHandleAt, polygonArea, rectContains, rectCorners, rectFromCorners,
+  rectPolygonOverlapArea, resizeRect,
 } from '@/lib/geometry'
 import { CASES } from '@/domain/cases'
 import type { TissueData } from '@/domain/tissue'
-import type { Annotation, Finding, Verdict } from '@/domain/types'
+import type { Annotation, Finding, ProposedFrame, Verdict } from '@/domain/types'
 
 let failures = 0
 function ok(name: string, cond: boolean, detail = '') {
@@ -228,6 +229,99 @@ ok('area scales with MPP squared', (() => {
 /* QC still comes out of the denominator after a resize. */
 const withQc = computeDensity(mkFrame(small), MPP, seventeen, m.qcRegions, [])
 ok('QC subtraction survives a resize', withQc.effectiveAreaMm2 <= withQc.areaMm2)
+
+/* ── §I.5 — model-proposed counting frame ──────────────────────────── */
+console.log('\n— model-proposed frame (§I.5) —')
+const prop = m.proposedFrame
+ok('the fixture offers a proposal on A2', prop !== null)
+ok('the proposal is deterministic', (() => {
+  const again = modelOutput({ ...A2, id: A2.id + '-copy2' }, tissue).proposedFrame
+  return !!again && !!prop &&
+    again.points[0].x === prop.points[0].x && again.points[1].y === prop.points[1].y
+})())
+ok('it frames the mitotic hotspot', prop!.clusterId === m.clusters[0].id)
+ok('it contains the hotspot bounds', (() => {
+  const r = rectFromCorners(prop!.points[0], prop!.points[1])
+  const b = m.clusters[0].bounds
+  return r.x <= b.x && r.y <= b.y && r.x + r.w >= b.x + b.w && r.y + r.h >= b.y + b.h
+})())
+ok('it stays inside the slide',
+  prop!.points[0].x >= 0 && prop!.points[0].y >= 0 &&
+  prop!.points[1].x <= A2.width && prop!.points[1].y <= A2.height)
+
+/* A proposal is not an Annotation. That is the membrane, structurally. */
+ok('a proposal has no author', !('by' in (prop as object)))
+ok('a proposal has no creation time', !('createdAt' in (prop as object)))
+ok('a proposal has no annotation kind', !('kind' in (prop as object)))
+ok('a proposal is not itself accepted geometry', !('fromProposalId' in (prop as object)))
+ok('a proposal is distinct from the human frame', prop!.id !== frame.id)
+
+/* No number, of any kind, while it is only proposed. */
+ok('a proposal never appears in the frame list',
+  ![frame].some((f) => (f as { id: string }).id === prop!.id))
+ok('computeDensity cannot be handed a proposal',
+  typeof (prop as unknown as Annotation).kind === 'undefined')
+
+/* Slides with no mitotic hotspot get no proposal. */
+const A1 = demo.slides[0]
+ok('a slide whose analysis failed gets no proposal',
+  modelOutput({ ...A1, id: A1.id + '-failed', analysis: 'failed' }, tissue).proposedFrame === null)
+ok('a slide out of model scope gets no proposal',
+  modelOutput({ ...A1, id: A1.id + '-oos', analysis: 'out_of_scope' }, tissue).proposedFrame === null)
+
+/* Read-First: the same gate every other inferred overlay passes through. */
+function visibleProposal(
+  mo: { proposedFrame: ProposedFrame | null }, revealed: boolean, anns: Annotation[],
+): ProposedFrame | null {
+  const pf = mo.proposedFrame
+  if (!pf) return null
+  if (!revealed) return null
+  if (anns.some((a) => a.fromProposalId === pf.id)) return null
+  return pf
+}
+ok('suppressed before reveal', visibleProposal(m, false, []) === null)
+ok('offered after reveal', visibleProposal(m, true, []) !== null)
+
+/* Accept frame — the proposal becomes authored geometry in the reader's name. */
+const accepted: Annotation = {
+  id: 'ANN-900', slideId: A2.id, kind: 'frame',
+  points: [{ ...prop!.points[0] }, { ...prop!.points[1] }],
+  label: 'Counting frame 2', createdAt: now, by: 'Dr Test', mag: prop!.mag,
+  fromProposalId: prop!.id,
+}
+ok('acceptance authors a frame Annotation', accepted.kind === 'frame' && accepted.by === 'Dr Test')
+ok('acceptance preserves provenance', accepted.fromProposalId === prop!.id)
+ok('acceptance copies the geometry exactly', (() => {
+  const a = rectFromCorners(prop!.points[0], prop!.points[1])
+  const b = frameRect(accepted)
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
+})())
+ok('the proposal is withdrawn once accepted', visibleProposal(m, true, [accepted]) === null)
+
+/* Only after acceptance does an area, and a density, exist. */
+const inFrame = m.candidates
+  .filter((c) => rectContains(frameRect(accepted), { x: c.x, y: c.y }))
+  .slice(0, 9)
+const acceptedFindings: Finding[] = inFrame.map((c, i2) => ({
+  id: 'AF' + i2, slideId: A2.id, type: 'mitotic_figure', origin: 'confirmed_candidate',
+  x: c.x, y: c.y, r: c.r, at: now, by: 'Dr Test', qcAffected: false, mag: 40,
+}))
+const acc = computeDensity(accepted, MPP, acceptedFindings, [], [])
+ok('the accepted frame has a measured area', acc.areaMm2 > 0, '(' + acc.areaMm2.toFixed(3) + ' mm2)')
+ok('the accepted frame produces a density', acc.density !== null)
+ok('density is numerator over measured area',
+  near(acc.density!, acc.confirmed.length / acc.effectiveAreaMm2))
+
+/* §I.4 resizing works on it immediately. */
+const accRect = frameRect(accepted)
+ok('an accepted frame exposes handles',
+  frameHandleAt(accRect, { x: accRect.x, y: accRect.y + accRect.h / 2 }, 7) === 'w')
+const widened = resizeRect(accRect, 'e', { x: accRect.x + accRect.w * 1.25, y: 0 }, 14)
+const acc2 = computeDensity({ ...accepted, points: rectCorners(widened) }, MPP, acceptedFindings, [], [])
+ok('resizing an accepted frame grows the measured area', acc2.areaMm2 > acc.areaMm2)
+ok('resizing an accepted frame lowers the density', acc2.density! < acc.density!)
+ok('the resized frame keeps its provenance',
+  ({ ...accepted, points: rectCorners(widened) }).fromProposalId === prop!.id)
 
 console.log('\n— QC geometry —')
 const q = m.qcRegions[0]
