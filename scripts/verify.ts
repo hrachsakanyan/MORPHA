@@ -12,12 +12,15 @@ import {
   markViewport, seedGrid, tierFor,
 } from '@/domain/coverage'
 import { computeDensity, frameRect } from '@/domain/density'
-import { findingsForSlide, ledgerFor, readinessGlyph, slideQcState } from '@/domain/derive'
+import {
+  findingsForSlide, ledgerFor, originCounts, readinessGlyph, slideQcState,
+} from '@/domain/derive'
 import {
   frameHandleAt, movePoint, polygonArea, polygonCentroid, rectContains, rectCorners,
   rectFromCorners, rectPolygonOverlapArea, resizeRect, vertexAt,
 } from '@/lib/geometry'
 import { CASES } from '@/domain/cases'
+import { FLYBACK_LAYERS } from '@/features/record/flyback'
 import type { TissueData } from '@/domain/tissue'
 import type { Annotation, Finding, ProposedFrame, Pt, Verdict } from '@/domain/types'
 
@@ -410,6 +413,102 @@ ok('the frame path still resizes after the refactor', (() => {
   const r1 = resizeRect(r0, 'e', { x: r0.x + r0.w * 1.5, y: 0 }, 14)
   return r1.w > r0.w && r1.x === r0.x
 })())
+
+/* ── §J.4 — Show in record, per object ─────────────────────────────── */
+console.log('\n— show in record (§J.4) —')
+
+/*
+ * The Record is derived: every finding, frame and measurement is already in it.
+ * Show in record is navigation — it opens the Record scrolled and highlighted
+ * to one object. These assertions cover the routing contract that behaviour
+ * rests on, since the Record itself is assembled by findingsForSlide and the
+ * annotation list, both already covered above.
+ */
+
+/** The section of the Record that owns an object id — what gets auto-expanded. */
+function sectionFor(
+  id: string, recFindings: Finding[], rejected: Array<{ candidateId: string }>,
+): 'findings' | 'rejected' | 'geometry' {
+  if (recFindings.some((f) => f.id === id)) return 'findings'
+  if (rejected.some((r) => r.candidateId === id)) return 'rejected'
+  return 'geometry'
+}
+
+const recFindings = findingsForSlide(A2.id, m, verdicts, [])
+const rejectedRows = verdicts
+  .filter((x) => x.kind === 'rejected')
+  .map((x) => ({ candidateId: x.candidateId }))
+
+ok('a finding routes to the findings section',
+  sectionFor(recFindings[0].id, recFindings, rejectedRows) === 'findings')
+ok('a rejected candidate routes to the rejected section',
+  sectionFor(rejectedRows[0].candidateId, recFindings, rejectedRows) === 'rejected')
+ok('a frame routes to the geometry section',
+  sectionFor(frame.id, recFindings, rejectedRows) === 'geometry')
+ok('a marked region routes to the geometry section',
+  sectionFor(region.id, recFindings, rejectedRows) === 'geometry')
+
+/* Only the object acted on is targeted. */
+const targetId = recFindings[3].id
+ok('exactly one finding matches the highlight',
+  recFindings.filter((f) => f.id === targetId).length === 1)
+ok('no other object shares the id',
+  ![frame, region].some((a) => a.id === targetId) &&
+  !rejectedRows.some((r) => r.candidateId === targetId))
+
+/* Repeated activation cannot duplicate evidence, because nothing is inserted. */
+ok('the record is derived, not accumulated', (() => {
+  const once = findingsForSlide(A2.id, m, verdicts, [])
+  const twice = findingsForSlide(A2.id, m, verdicts, [])
+  return once.length === twice.length
+})())
+ok('the finding count is unchanged by being shown',
+  findingsForSlide(A2.id, m, verdicts, []).length === recFindings.length)
+
+/* Provenance survives the trip. */
+ok('a finding carries its origin into the record',
+  recFindings.every((f) => ['confirmed_candidate', 'reclassified_candidate', 'pathologist'].includes(f.origin)))
+ok('origin distinguishes model-derived from pathologist-originated', (() => {
+  const o = originCounts(recFindings)
+  return o.fromCandidates + o.pathologist === recFindings.length
+})())
+ok('a reclassified finding still names what the model proposed',
+  recFindings.find((f) => f.origin === 'reclassified_candidate')?.proposedType === 'mitotic_figure')
+ok('an accepted proposal is not shown as independently human-discovered',
+  accepted.fromProposalId === prop!.id && accepted.by === 'Dr Test')
+ok('a hand-drawn frame carries no proposal provenance', frame.fromProposalId === undefined)
+
+/* Fly-back from the Record still resolves to the right tissue and layers.
+   These assert the declaration the Record actually reads, so a layer set that
+   drifts out of agreement with §J.4 fails here rather than at the click. */
+ok('a finding flies back to a real point at its creation magnification', (() => {
+  const f = recFindings[0]
+  return Number.isFinite(f.x) && Number.isFinite(f.y) && f.mag > 0 &&
+    f.x >= 0 && f.x <= A2.width && f.y >= 0 && f.y <= A2.height
+})())
+ok('a frame flies back to a rect with real extent', (() => {
+  const r = frameRect(frame)
+  return r.w > 0 && r.h > 0
+})())
+ok('geometry fly-back forces every authored layer',
+  FLYBACK_LAYERS.geometry.marked && FLYBACK_LAYERS.geometry.frames &&
+  FLYBACK_LAYERS.geometry.measurements)
+ok('the rejected ledger forces the rejected layer', FLYBACK_LAYERS.rejected.rejected === true)
+ok('a rejected count inside a frame forces rejected on top of findings',
+  FLYBACK_LAYERS.rejectedInFrame.rejected === true &&
+  FLYBACK_LAYERS.rejectedInFrame.findings === true)
+ok('density forces the frame it was measured in',
+  FLYBACK_LAYERS.density.frames === true && FLYBACK_LAYERS.density.findings === true)
+ok('a coverage figure forces the coverage veil', FLYBACK_LAYERS.coverage.coverage === true)
+ok('a QC figure forces the QC layer', FLYBACK_LAYERS.qc.qc === true)
+ok('no fly-back target is left with an empty layer set',
+  Object.values(FLYBACK_LAYERS).every((l) => Object.keys(l).length > 0))
+ok('every fly-back layer is forced on, never off',
+  Object.values(FLYBACK_LAYERS).every((l) => Object.values(l).every((v) => v === true)))
+ok('every finding has a magnification to return to',
+  recFindings.every((f) => Number.isFinite(f.mag) && f.mag > 0))
+ok('every finding has a slide to return to',
+  recFindings.every((f) => f.slideId === A2.id))
 
 console.log('\n— QC geometry —')
 const q = m.qcRegions[0]

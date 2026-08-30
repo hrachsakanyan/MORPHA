@@ -9,6 +9,7 @@ import { CaseBar } from '@/features/workspace/CaseBar'
 import { useSessions } from '@/state/store'
 import { useUi } from '@/state/ui'
 import { useCaseEvidence } from './useCaseEvidence'
+import { FLYBACK_LAYERS } from './flyback'
 import { OpenItemsSheet } from './OpenItemsSheet'
 import type { Finding, Rect } from '@/domain/types'
 import './record.css'
@@ -33,7 +34,32 @@ export function RecordPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ findings: true })
   const [sheet, setSheet] = useState(false)
 
-  useEffect(() => { ui.setRecordHighlight(null) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * Tissue → Record (§J.4). An object arriving from the workspace opens its
+   * section, scrolls itself into view and takes focus styling. The highlight is
+   * cleared on the way out, not on the way in — clearing it on mount is what
+   * would throw away the thing we were sent here to show.
+   */
+  const highlightId = ui.recordHighlightId
+  useEffect(() => () => { useUi.getState().setRecordHighlight(null) }, [])
+
+  useEffect(() => {
+    if (!highlightId) return
+    const section = ev.findings.some((f) => f.id === highlightId) ? 'findings'
+      : ev.rejected.some((r) => r.candidateId === highlightId) ? 'rejected'
+      : 'geometry'
+    setExpanded((x) => (x[section] ? x : { ...x, [section]: true }))
+  }, [highlightId, ev.findings, ev.rejected])
+
+  useEffect(() => {
+    if (!highlightId) return
+    // One frame after the section opens, so the node exists to scroll to.
+    const t = window.setTimeout(() => {
+      document.querySelector(`[data-rec-id="${CSS.escape(highlightId)}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 60)
+    return () => window.clearTimeout(t)
+  }, [highlightId, expanded])
 
   if (!def) {
     return (
@@ -79,7 +105,7 @@ export function RecordPage() {
     flyBack({
       slideId: f.slideId,
       target: { kind: 'point', x: f.x, y: f.y, mag: f.mag },
-      layers: { findings: true },
+      layers: FLYBACK_LAYERS.finding,
       findingIds: [f.id],
     })
   }
@@ -122,7 +148,7 @@ export function RecordPage() {
                       onClick={() => ev.density && flyBack({
                         slideId: ev.density.slide.id,
                         target: { kind: 'rect', rect: frameRect(ev.density.result.frame) },
-                        layers: { frames: true, findings: true },
+                        layers: FLYBACK_LAYERS.density,
                         findingIds: ev.density.result.confirmed.map((f) => f.id),
                       })}
                     >
@@ -133,7 +159,7 @@ export function RecordPage() {
                       onClick={() => ev.density && flyBack({
                         slideId: ev.density.slide.id,
                         target: { kind: 'rect', rect: frameRect(ev.density.result.frame) },
-                        layers: { findings: true, rejected: true },
+                        layers: FLYBACK_LAYERS.rejectedInFrame,
                         findingIds: ev.density.result.confirmed.map((f) => f.id),
                       })}
                     >
@@ -168,7 +194,7 @@ export function RecordPage() {
                         if (f) flyBack({
                           slideId: f.slideId,
                           target: { kind: 'rect', rect: boundsOfFindings(items) },
-                          layers: { findings: true },
+                          layers: FLYBACK_LAYERS.finding,
                           findingIds: items.map((x) => x.id),
                           spatial: 'orientation',
                         })
@@ -184,7 +210,10 @@ export function RecordPage() {
                     <div className="rec__chips">
                       {items.map((f, i) => (
                         <button
-                          key={f.id} className="link mono" onClick={() => flyToFinding(f)}
+                          key={f.id}
+                          data-rec-id={f.id}
+                          className={`link mono${f.id === highlightId ? ' rec__hit' : ''}`}
+                          onClick={() => flyToFinding(f)}
                           title={`${f.slideId.split('.').pop()} · ${f.origin.replace(/_/g, ' ')} · ${timeHM(f.at)}`}
                         >
                           #{i + 1}
@@ -206,7 +235,11 @@ export function RecordPage() {
               {geometry.length === 0 ? (
                 <div className="empty">No geometry authored.</div>
               ) : geometry.map((a) => (
-                <div key={a.id} className="rec__row">
+                <div
+                  key={a.id}
+                  data-rec-id={a.id}
+                  className={`rec__row${a.id === highlightId ? ' rec__hit' : ''}`}
+                >
                   <span style={{ color: 'var(--measured)' }}>
                     {a.kind === 'frame' ? '▭' : a.kind === 'distance' ? '↔' : a.kind === 'text' ? 'T' : '▱'}
                   </span>
@@ -215,7 +248,7 @@ export function RecordPage() {
                     target: a.kind === 'frame'
                       ? { kind: 'rect', rect: frameRect(a) }
                       : { kind: 'point', x: a.points[0].x, y: a.points[0].y, mag: a.mag },
-                    layers: { marked: true, frames: true, measurements: true },
+                    layers: FLYBACK_LAYERS.geometry,
                     findingIds: [a.id],
                   })}>
                     {a.label}
@@ -245,7 +278,11 @@ export function RecordPage() {
                     system exists to keep.
                   </div>
                   {ev.rejected.map((r) => (
-                    <div key={r.candidateId} className="rec__row">
+                    <div
+                      key={r.candidateId}
+                      data-rec-id={r.candidateId}
+                      className={`rec__row${r.candidateId === highlightId ? ' rec__hit' : ''}`}
+                    >
                       <span style={{ color: 'var(--dismissed)' }}>✕</span>
                       <button className="link" onClick={() => {
                         const slideEv = ev.slides.find((s) => s.slide.id === r.slide.id)
@@ -254,7 +291,7 @@ export function RecordPage() {
                         flyBack({
                           slideId: r.slide.id,
                           target: { kind: 'point', x: c.x, y: c.y, mag: 40 },
-                          layers: { rejected: true, candidates: true },
+                          layers: FLYBACK_LAYERS.rejected,
                         })
                       }}>
                         {typeLabel(r.type)}
@@ -288,7 +325,7 @@ export function RecordPage() {
                       flyBack({
                         slideId: s.slide.id,
                         target: { kind: 'rect', rect: s.largestUnviewed },
-                        layers: { coverage: true },
+                        layers: FLYBACK_LAYERS.coverage,
                         spatial: 'orientation',
                       })
                     }}
@@ -386,14 +423,14 @@ export function RecordPage() {
             if (item.kind === 'coverage' && s.largestUnviewed) {
               flyBack({
                 slideId: item.slideId, target: { kind: 'rect', rect: s.largestUnviewed },
-                layers: { coverage: true }, spatial: 'orientation',
+                layers: FLYBACK_LAYERS.coverage, spatial: 'orientation',
               })
             } else if (item.kind === 'qc') {
               const q = s.model.qcRegions[0]
               if (q) flyBack({
                 slideId: item.slideId,
                 target: { kind: 'point', x: q.polygon[0].x, y: q.polygon[0].y, mag: 4 },
-                layers: { qc: true },
+                layers: FLYBACK_LAYERS.qc,
               })
             } else {
               setActiveSlide(caseId, item.slideId)

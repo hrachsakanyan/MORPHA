@@ -103,3 +103,16 @@
   display: grid; grid-template-columns: 28px 1fr auto;
   align-items: center; gap: var(--s-2); font-size: 12px;
 }
+
+/* The object a Show-in-record arrived on (§J.4). Measured teal, because what is
+   highlighted is evidence a human authored or confirmed — the marker states
+   "this is the one you asked for", never "this is more important". */
+.rec__hit {
+  outline: 1px solid var(--measured);
+  outline-offset: 2px;
+  border-radius: 3px;
+  background: var(--measured-dim);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rec__hit { transition: outline-color 200ms var(--ease), background 200ms var(--ease); }
+}

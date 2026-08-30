@@ -1,0 +1,38 @@
+/* Per-object context menu (§J.4). Docked to the pointer, never to the tissue. */
+.objmenu {
+  position: fixed;
+  z-index: 60;
+  min-width: 176px;
+  padding: 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--bg-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.objmenu__head {
+  padding: 5px 8px 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.objmenu__item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+.objmenu__item:hover,
+.objmenu__item:focus-visible { background: var(--bg-3); }

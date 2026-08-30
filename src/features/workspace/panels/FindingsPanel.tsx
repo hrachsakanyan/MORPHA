@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { groupFindings, originCounts } from '@/domain/derive'
 import { frameRect } from '@/domain/density'
@@ -5,6 +6,7 @@ import { timeHM, typeLabel } from '@/lib/format'
 import { Button, Notice } from '@/components/ui'
 import { useSessions } from '@/state/store'
 import { useUi } from '@/state/ui'
+import { ObjectMenu, type MenuTarget } from './ObjectMenu'
 import type { Workspace } from '../useWorkspace'
 import type { Annotation, Finding } from '@/domain/types'
 
@@ -15,8 +17,27 @@ export function FindingsPanel({ ws, caseId }: { ws: Workspace; caseId: string })
   const relabel = useSessions((s) => s.relabelAnnotation)
   const remove = useSessions((s) => s.removeAnnotation)
 
+  const [menu, setMenu] = useState<MenuTarget | null>(null)
+
   const slide = ws.slide
   if (!slide) return null
+
+  /**
+   * Tissue → Record (§J.4). The Record is derived, so every finding, frame and
+   * measurement is already in it; this opens it scrolled and highlighted to
+   * this one object. Nothing is inserted, so triggering it twice cannot
+   * duplicate anything.
+   */
+  function showInRecord(id: string) {
+    ui.setRecordHighlight(id)
+    setMenu(null)
+    navigate(`/case/${caseId}/record`)
+  }
+
+  const openMenu = (e: React.MouseEvent, id: string, label: string) => {
+    e.preventDefault()
+    setMenu({ id, label, x: e.clientX, y: e.clientY })
+  }
 
   function flyToFinding(f: Finding) {
     if (!slide) return
@@ -49,6 +70,13 @@ export function FindingsPanel({ ws, caseId }: { ws: Workspace; caseId: string })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {menu && (
+        <ObjectMenu
+          target={menu}
+          onShowInRecord={() => showInRecord(menu.id)}
+          onClose={() => setMenu(null)}
+        />
+      )}
       <section>
         <div className="typehead">
           <span style={{ color: 'var(--text)' }}>FINDINGS</span>
@@ -83,8 +111,9 @@ export function FindingsPanel({ ws, caseId }: { ws: Workspace; caseId: string })
                       type="button"
                       className="link"
                       style={{ fontFamily: 'var(--font-mono)' }}
-                      title={`${typeLabel(f.type)} · ${f.origin.replace(/_/g, ' ')} · ${timeHM(f.at)}${f.proposedType ? ` · proposed ${typeLabel(f.proposedType)}` : ''}`}
+                      title={`${typeLabel(f.type)} · ${f.origin.replace(/_/g, ' ')} · ${timeHM(f.at)}${f.proposedType ? ` · proposed ${typeLabel(f.proposedType)}` : ''} · right-click for actions`}
                       onClick={() => flyToFinding(f)}
+                      onContextMenu={(e) => openMenu(e, f.id, `${typeLabel(f.type)} #${i + 1}`)}
                     >
                       #{i + 1}
                     </button>
@@ -111,6 +140,8 @@ export function FindingsPanel({ ws, caseId }: { ws: Workspace; caseId: string })
             {geometry.map((a) => (
               <div
                 key={a.id}
+                onContextMenu={(e) => openMenu(e, a.id, a.label)}
+                title="Right-click for actions"
                 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
               >
                 <span style={{ color: 'var(--measured)' }}>
