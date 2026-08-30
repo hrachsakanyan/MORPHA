@@ -105,3 +105,57 @@ export function rectPolygonOverlapArea(r: Rect, poly: Pt[], samples = 96): numbe
   }
   return (hits / (samples * samples)) * (x1 - x0) * (y1 - y0)
 }
+
+/* ── Counting-frame handles (§I.4) ──────────────────────────────────── */
+
+/** The eight grab points on a counting frame: four edges, four corners. */
+export type FrameHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'se' | 'sw'
+
+/**
+ * Which handle, if any, sits under `p`. `tol` is in the same units as the rect,
+ * so callers working in screen space pass a screen tolerance and the grab zone
+ * stays a constant size on the display at every magnification.
+ *
+ * Corners win over edges: at a corner both edges are within tolerance, and the
+ * corner is the more specific intent.
+ */
+export function frameHandleAt(r: Rect, p: Pt, tol: number): FrameHandle | null {
+  const x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h
+  if (p.x < x0 - tol || p.x > x1 + tol || p.y < y0 - tol || p.y > y1 + tol) return null
+
+  const l = Math.abs(p.x - x0) <= tol
+  const rt = Math.abs(p.x - x1) <= tol
+  const t = Math.abs(p.y - y0) <= tol
+  const b = Math.abs(p.y - y1) <= tol
+
+  if (t && l) return 'nw'
+  if (t && rt) return 'ne'
+  if (b && l) return 'sw'
+  if (b && rt) return 'se'
+  if (t) return 'n'
+  if (b) return 's'
+  if (l) return 'w'
+  if (rt) return 'e'
+  return null
+}
+
+/**
+ * The rect that results from dragging `handle` to `p`. Only the edges named by
+ * the handle move; the opposite edges are fixed, so a drag never translates the
+ * frame. `min` keeps the frame from collapsing through itself, which would make
+ * the denominator meaningless.
+ */
+export function resizeRect(r: Rect, handle: FrameHandle, p: Pt, min = 1): Rect {
+  let x0 = r.x, y0 = r.y
+  let x1 = r.x + r.w, y1 = r.y + r.h
+  if (handle.includes('w')) x0 = Math.min(p.x, x1 - min)
+  if (handle.includes('e')) x1 = Math.max(p.x, x0 + min)
+  if (handle.includes('n')) y0 = Math.min(p.y, y1 - min)
+  if (handle.includes('s')) y1 = Math.max(p.y, y0 + min)
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/** A rect as the two-corner point pair an Annotation stores. */
+export function rectCorners(r: Rect): [Pt, Pt] {
+  return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y + r.h }]
+}

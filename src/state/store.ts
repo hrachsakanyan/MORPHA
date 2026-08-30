@@ -5,7 +5,7 @@ import { uid } from '@/lib/id'
 import * as registry from './coverageRegistry'
 import type {
   Annotation, CaseDef, CaseSession, CaseStatus, DismissReason, FindingType,
-  LayerConfig, PanelContext, SlideSessionState, SpatialState, ToolId, ToolState,
+  LayerConfig, PanelContext, Pt, SlideSessionState, SpatialState, ToolId, ToolState,
   Verdict, VerdictKind, Viewport,
 } from '@/domain/types'
 
@@ -95,6 +95,7 @@ interface SessionState {
 
   addAnnotation: (caseId: string, a: Omit<Annotation, 'id' | 'createdAt' | 'by'>) => Annotation
   removeAnnotation: (caseId: string, id: string) => void
+  reshapeAnnotation: (caseId: string, id: string, points: Pt[]) => void
   undoAnnotation: (caseId: string) => Annotation | null
   relabelAnnotation: (caseId: string, id: string, label: string) => void
 
@@ -245,6 +246,16 @@ export const useSessions = create<SessionState>()(
         set((s) => withSession(s, caseId, (x) => { x.annotations.pop() }) ?? {})
         return last
       },
+
+      /**
+       * Commit a resized counting frame (§I.4). Called once on pointer up —
+       * the live geometry during a drag is transient UI state, so a resize
+       * costs one write, not one per pointer move.
+       */
+      reshapeAnnotation: (caseId, id, points) =>
+        set((s) => withSession(s, caseId, (x) => {
+          x.annotations = x.annotations.map((n) => (n.id === id ? { ...n, points } : n))
+        }) ?? {}),
 
       relabelAnnotation: (caseId, id, label) =>
         set((s) => withSession(s, caseId, (x) => {

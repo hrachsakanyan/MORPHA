@@ -6,7 +6,10 @@ import {
 import { markViewport } from '@/domain/coverage'
 import { formatArea, formatDistance, frameRect } from '@/domain/density'
 import { latestVerdicts } from '@/domain/derive'
-import { dist, polygonArea, polygonCentroid, rectFromCorners } from '@/lib/geometry'
+import {
+  dist, frameHandleAt, polygonArea, polygonCentroid, rectCorners, rectFromCorners, resizeRect,
+  type FrameHandle,
+} from '@/lib/geometry'
 import { useSessions } from '@/state/store'
 import { useUi } from '@/state/ui'
 import { useView } from '@/state/view'
@@ -19,7 +22,18 @@ import type { Pt } from '@/domain/types'
 
 interface FailedTile { level: number; x: number; y: number }
 
+/** Grab zone for a frame edge, in screen px — constant at every magnification. */
+const HANDLE_TOL = 7
+/** A frame may not be dragged below this on screen; the denominator must stay real. */
+const MIN_FRAME_PX = 14
+
+const HANDLE_CURSOR: Record<FrameHandle, string> = {
+  n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
+  nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
+}
+
 export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const viewerRef = useRef<OpenSeadragon.Viewer | null>(null)
@@ -46,11 +60,16 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     setAnchorState(next)
   }, [])
 
+  /** Which frame handle the pointer is over, in screen space (§I.4). */
+  const [hoverHandle, setHoverHandle] = useState<FrameHandle | null>(null)
+  const dragRef = useRef<{ id: string; handle: FrameHandle; from: ReturnType<typeof frameRect> } | null>(null)
+
   const slide = ws.slide
   const dzi = slide?.dzi ?? null
 
   const setViewport = useSessions((s) => s.setViewport)
   const addAnnotation = useSessions((s) => s.addAnnotation)
+  const reshapeAnnotation = useSessions((s) => s.reshapeAnnotation)
 
   const ui = useUi()
   const wsRef = useRef(ws)
@@ -424,6 +443,12 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
         const r = rectFromCorners(pts[0], pts[1])
         ctx.strokeRect(r.x, r.y, r.w, r.h)
         drawCornerTicks(ctx, r, colour)
+        // The edge under the pointer thickens. No new handle is introduced —
+        // the affordance is the frame's own stroke, plus the resize cursor.
+        const hov = a.id === resizableRef.current?.id
+          ? (dragRef.current?.handle ?? hoverRef.current)
+          : null
+        if (hov) drawHandleEmphasis(ctx, r, hov, colour)
         ctx.restore()
         if (mpp) {
           const ir = frameRect(a)
@@ -541,6 +566,57 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     viewer.setMouseNavEnabled(!drawing)
   }, [drawing, ready])
 
+  /**
+   * Only the selected frame is resizable, and only when the scale is real.
+   * Drawing a new frame takes precedence over reshaping an existing one, and a
+   * finalized case is read-only.
+   */
+  const resizableFrame = useMemo(() => {
+    if (drawing || !ws.measurementEnabled || ws.readOnly) return null
+    return ws.frames.find((f) => f.id === ui.selectedFrameId) ?? null
+  }, [drawing, ws.measurementEnabled, ws.readOnly, ws.frames, ui.selectedFrameId])
+
+  const resizableRef = useRef(resizableFrame)
+  resizableRef.current = resizableFrame
+  const hoverRef = useRef<FrameHandle | null>(hoverHandle)
+  hoverRef.current = hoverHandle
+
+  /**
+   * Hover is tracked on the container rather than the overlay, because the
+   * overlay only accepts pointer events once a handle is under the cursor —
+   * otherwise it would swallow every pan and zoom OpenSeadragon needs.
+   */
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const onMove = (e: PointerEvent) => {
+      if (dragRef.current) return
+      const f = resizableRef.current
+      const t = transform()
+      if (!f || !t) { setHoverHandle(null); return }
+      const box = root.getBoundingClientRect()
+      const r = frameRect(f)
+      const screen = {
+        x: t.sx(r.x), y: t.sy(r.y), w: r.w * t.scale, h: r.h * t.scale,
+      }
+      setHoverHandle(
+        frameHandleAt(screen, { x: e.clientX - box.left, y: e.clientY - box.top }, HANDLE_TOL),
+      )
+    }
+    const onLeave = () => { if (!dragRef.current) setHoverHandle(null) }
+    root.addEventListener('pointermove', onMove)
+    root.addEventListener('pointerleave', onLeave)
+    return () => {
+      root.removeEventListener('pointermove', onMove)
+      root.removeEventListener('pointerleave', onLeave)
+    }
+  }, [transform])
+
+  // A frame that stops being resizable must not leave a stale resize cursor.
+  useEffect(() => {
+    if (!resizableFrame && hoverHandle) setHoverHandle(null)
+  }, [resizableFrame, hoverHandle])
+
   const toImage = useCallback((clientX: number, clientY: number): Pt | null => {
     const viewer = viewerRef.current
     const host = hostRef.current
@@ -580,12 +656,28 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     if (kind === 'frame') {
       uiRef.current.setSelectedFrame(created.id)
       useSessions.getState().setPanel(caseId, 'density')
+      // Disarm on commit, so the frame the reader just drew is immediately
+      // adjustable. Drawing takes precedence over reshaping, so leaving the
+      // tool armed would put an Escape between drawing a denominator and
+      // correcting it — the two halves of one act.
+      useSessions.getState().setTool(caseId, 'navigate', null)
     }
     uiRef.current.announce(`${labels[kind]} created`)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId, addAnnotation])
 
   const onPointerDown = (e: React.PointerEvent) => {
+    /* Reshaping an existing frame (§I.4). */
+    const f = resizableFrame
+    if (f && hoverHandle) {
+      e.preventDefault()
+      e.currentTarget.setPointerCapture(e.pointerId)
+      dragRef.current = { id: f.id, handle: hoverHandle, from: frameRect(f) }
+      viewerRef.current?.setMouseNavEnabled(false)
+      ui.setFrameDrag({ annotationId: f.id, points: rectCorners(frameRect(f)) })
+      return
+    }
+
     if (!drawing || !toolId) return
     const p = toImage(e.clientX, e.clientY)
     if (!p) return
@@ -611,6 +703,21 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
+    const resize = dragRef.current
+    if (resize) {
+      const p = toImage(e.clientX, e.clientY)
+      const t = transform()
+      if (!p) return
+      // The floor is a constant on screen, so the frame stays grabbable at 40x
+      // without becoming unusably coarse at 2x.
+      const min = t ? MIN_FRAME_PX / t.scale : 1
+      ui.setFrameDrag({
+        annotationId: resize.id,
+        points: rectCorners(resizeRect(resize.from, resize.handle, p, min)),
+      })
+      return
+    }
+
     if (!drawing) return
     const d = uiRef.current.draft
     if (!d) return
@@ -618,7 +725,29 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     if (p) ui.setDraft({ ...d, cursor: p })
   }
 
+  const endResize = (commit: boolean) => {
+    const d = dragRef.current
+    if (!d) return
+    const live = uiRef.current.frameDrag
+    dragRef.current = null
+    viewerRef.current?.setMouseNavEnabled(!drawing)
+    if (commit && live && live.annotationId === d.id) {
+      reshapeAnnotation(caseId, d.id, live.points)
+      const s = wsRef.current.slide
+      if (s?.mpp) {
+        const r = rectFromCorners(live.points[0], live.points[1])
+        uiRef.current.announce(`Counting frame resized to ${formatArea(r.w * r.h, s.mpp)}`)
+      }
+    }
+    ui.setFrameDrag(null)
+  }
+
   const onPointerUp = (e: React.PointerEvent) => {
+    if (dragRef.current) {
+      e.currentTarget.releasePointerCapture?.(e.pointerId)
+      endResize(true)
+      return
+    }
     if (!drawing) return
     const d = uiRef.current.draft
     if (!d) return
@@ -687,10 +816,12 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   }, [ready, caseId, transform])
 
   const cursor = useMemo(() => {
+    const active = dragRef.current?.handle ?? hoverHandle
+    if (active) return HANDLE_CURSOR[active]
     if (!drawing) return 'default'
     if (toolId === 'text') return 'text'
     return 'crosshair'
-  }, [drawing, toolId])
+  }, [drawing, toolId, hoverHandle])
 
   if (!dzi) {
     return (
@@ -708,17 +839,18 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0 }}>
+    <div ref={rootRef} style={{ position: 'absolute', inset: 0 }}>
       <div ref={hostRef} style={{ position: 'absolute', inset: 0, background: '#0e0b10' }} />
       <canvas
         ref={overlayRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={() => endResize(false)}
         onDoubleClick={onDoubleClick}
         style={{
           position: 'absolute', inset: 0,
-          pointerEvents: drawing ? 'auto' : 'none',
+          pointerEvents: drawing || hoverHandle || dragRef.current ? 'auto' : 'none',
           cursor,
         }}
       />
@@ -731,6 +863,25 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
 }
 
 /* ── helpers ──────────────────────────────────────────────────────── */
+
+/** Thickens the edges named by the hovered handle, so the grab target is legible. */
+function drawHandleEmphasis(
+  ctx: CanvasRenderingContext2D, r: { x: number; y: number; w: number; h: number },
+  handle: FrameHandle, colour: string,
+) {
+  ctx.save()
+  ctx.setLineDash([])
+  ctx.strokeStyle = colour
+  ctx.lineWidth = STROKE.authored + 2
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  if (handle.includes('n')) { ctx.moveTo(r.x, r.y); ctx.lineTo(r.x + r.w, r.y) }
+  if (handle.includes('s')) { ctx.moveTo(r.x, r.y + r.h); ctx.lineTo(r.x + r.w, r.y + r.h) }
+  if (handle.includes('w')) { ctx.moveTo(r.x, r.y); ctx.lineTo(r.x, r.y + r.h) }
+  if (handle.includes('e')) { ctx.moveTo(r.x + r.w, r.y); ctx.lineTo(r.x + r.w, r.y + r.h) }
+  ctx.stroke()
+  ctx.restore()
+}
 
 function liveReadout(
   d: { tool: string; points: Pt[] }, cursor: Pt, mpp: number,

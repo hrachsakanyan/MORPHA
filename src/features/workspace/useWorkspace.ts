@@ -6,6 +6,7 @@ import { findingsForSlide, latestVerdicts, ledgerFor, type Ledger } from '@/doma
 import { polygonArea } from '@/lib/geometry'
 import { useTissue, type TissueStatus } from '@/hooks/useTissue'
 import { useSessions } from '@/state/store'
+import { useUi } from '@/state/ui'
 import * as registry from '@/state/coverageRegistry'
 import type {
   Annotation, CaseDef, CaseSession, Cluster, Finding, QcRegion, QcState,
@@ -76,10 +77,22 @@ export function useWorkspace(caseId: string | undefined): Workspace {
     [model.qcRegions, dismissedQcIds.join('|')], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  const annotations = useMemo(
-    () => (session && slide ? session.annotations.filter((a) => a.slideId === slide.id) : []),
-    [session, slide],
-  )
+  /**
+   * A counting frame mid-resize reads from the transient drag rather than the
+   * session (§I.4). Every consumer — the microscope overlay, the slide map and
+   * the density fraction — draws from this one list, so the denominator and the
+   * geometry cannot disagree while the pointer is down.
+   */
+  const frameDrag = useUi((s) => s.frameDrag)
+
+  const annotations = useMemo(() => {
+    if (!session || !slide) return []
+    const own = session.annotations.filter((a) => a.slideId === slide.id)
+    if (!frameDrag) return own
+    return own.map(
+      (a) => (a.id === frameDrag.annotationId ? { ...a, points: frameDrag.points } : a),
+    )
+  }, [session, slide, frameDrag])
 
   /**
    * The denominator loses automated QC that is still standing, plus any area the

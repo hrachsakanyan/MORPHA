@@ -36,6 +36,17 @@ export interface Draft {
   cursor: Pt | null
 }
 
+/**
+ * A counting frame being resized (§I.4). The geometry lives here, not in the
+ * session, so the denominator can update on every pointer move without writing
+ * a hundred states to storage or burying the geometry undo stack. It is
+ * committed to the session once, on pointer up.
+ */
+export interface FrameDrag {
+  annotationId: string
+  points: [Pt, Pt]
+}
+
 interface UiState {
   railCollapsed: boolean
   panelCollapsed: boolean
@@ -56,6 +67,9 @@ interface UiState {
 
   draft: Draft | null
   setDraft: (d: Draft | null) => void
+
+  frameDrag: FrameDrag | null
+  setFrameDrag: (d: FrameDrag | null) => void
 
   holdClear: boolean
   setHoldClear: (v: boolean) => void
@@ -108,6 +122,9 @@ export const useUi = create<UiState>((set) => ({
   draft: null,
   setDraft: (d) => set({ draft: d }),
 
+  frameDrag: null,
+  setFrameDrag: (d) => set({ frameDrag: d }),
+
   holdClear: false,
   setHoldClear: (v) => set({ holdClear: v }),
 
@@ -139,6 +156,7 @@ export const useUi = create<UiState>((set) => ({
       activeClusterId: null,
       chipStrip: null,
       draft: null,
+      frameDrag: null,
       holdClear: false,
       selectedFrameId: null,
       focusedFindingIds: [],
