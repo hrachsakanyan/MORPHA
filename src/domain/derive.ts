@@ -124,6 +124,35 @@ export function readinessGlyph(slides: SlideDef[]): ReadinessGlyph {
   return 'partial'
 }
 
+/** One model analysis run against one slide (§J.1: provenance is per slide, per run). */
+export interface ModelRun {
+  id: string
+  version: string
+  runAt: string
+  /**
+   * True for the run whose candidates are the slide's active analysis. A past
+   * run stays in the provenance list — its objects are retained as Superseded,
+   * never deleted (§K.3) — but it is never the run the reader adjudicates.
+   */
+  current: boolean
+}
+
+/**
+ * Every model run recorded against a slide, newest first.
+ *
+ * Provenance is specified `per slide, per run` (J.1). Rendering only the
+ * current run silently drops the fact that a slide was re-analysed, which is
+ * exactly the fact a second reader needs in order to read the Superseded
+ * objects the earlier run left behind. Derived from the slide definition, so it
+ * cannot drift from the run metadata itself.
+ */
+export function modelRunsFor(slide: SlideDef): ModelRun[] {
+  const runs: ModelRun[] = []
+  if (slide.model) runs.push({ ...slide.model, current: true })
+  if (slide.previousModel) runs.push({ ...slide.previousModel, current: false })
+  return runs
+}
+
 export const READINESS_LABEL: Record<ReadinessGlyph, string> = {
   ready: 'Ready',
   partial: 'Partial',

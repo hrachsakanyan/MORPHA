@@ -13,7 +13,7 @@ import {
 } from '@/domain/coverage'
 import { computeDensity, frameRect } from '@/domain/density'
 import {
-  findingsForSlide, ledgerFor, originCounts, readinessGlyph, slideQcState,
+  findingsForSlide, ledgerFor, modelRunsFor, originCounts, readinessGlyph, slideQcState,
 } from '@/domain/derive'
 import {
   frameHandleAt, movePoint, polygonArea, polygonCentroid, rectContains, rectCorners,
@@ -615,6 +615,56 @@ ok('reclassify still produces a finding under the new type', (() => {
   return out.length === 1 && out[0].type === 'apoptotic_body' &&
     out[0].proposedType === 'mitotic_figure'
 })())
+
+/* -- Model provenance, per slide, per run (J.1 item 7) -------------- */
+console.log('\n— model provenance (§J.1) —')
+const runsA1 = modelRunsFor(A1)
+const runsA2 = modelRunsFor(A2)
+
+ok('a slide analysed once lists exactly one run', runsA1.length === 1, '(' + runsA1.length + ')')
+ok('that run is the slide’s own model metadata',
+  runsA1[0].id === A1.model?.id && runsA1[0].version === A1.model?.version &&
+  runsA1[0].runAt === A1.model?.runAt)
+ok('a re-analysed slide lists both runs', runsA2.length === 2, '(' + runsA2.length + ')')
+ok('the current run is the one that produced the live candidates',
+  runsA2[0].id === 'mitosis-v4.2' && runsA2[0].version === '4.2.1' &&
+  runsA2[0].id === A2.model?.id)
+ok('the replaced run is named with its own version',
+  runsA2[1].id === 'mitosis-v4.1' && runsA2[1].version === '4.1.6')
+ok('the two runs are distinguishable, not a repeated line',
+  runsA2[0].id !== runsA2[1].id && runsA2[0].runAt !== runsA2[1].runAt)
+
+/* The point of the `current` flag: a past run is documented, never active. */
+ok('exactly one run is current', runsA2.filter((r) => r.current).length === 1)
+ok('the replaced run is not current', runsA2[1].current === false)
+ok('runs are newest first', Date.parse(runsA2[0].runAt) > Date.parse(runsA2[1].runAt))
+ok('the current run is the one the live candidates came from', (() => {
+  const out = modelOutput(A2, tissue)
+  // The replaced run left only superseded objects, held in a separate list.
+  return out.candidates.length > 0 && out.supersededCandidates.length > 0 &&
+    runsA2.find((r) => r.current)!.id === A2.model!.id
+})())
+ok('removing the previous run leaves the current one untouched', (() => {
+  const once = modelRunsFor({ ...A2, previousModel: undefined })
+  return once.length === 1 && once[0].current === true && once[0].id === 'mitosis-v4.2'
+})())
+ok('a slide with no analysis lists no runs at all', (() => {
+  const unanalysed = CASES.flatMap((c) => c.slides).filter((sl) => !sl.model)
+  return unanalysed.length > 0 && unanalysed.every((sl) => modelRunsFor(sl).length === 0)
+})())
+ok('provenance is documentation: a run carries metadata and nothing else',
+  runsA2.every((r) => Object.keys(r).sort().join() === 'current,id,runAt,version'))
+ok('naming the replaced run adds no Record evidence', (() => {
+  // The rail gained a line; the evidence stream must not have gained an object.
+  const out = findingsForSlide(A2.id, m, verdicts, [])
+  return out.length === recFindings.length &&
+    runsA2.every((r) => !out.some((f) => f.id.includes(r.id)))
+})())
+ok('superseded candidates still reach no finding now that their run is named',
+  findingsForSlide(A2.id, m, [...verdicts, ...sup.map((c) => v(c.id, 'confirmed'))], [])
+    .every((f) => !f.candidateId?.includes('-sup-')))
+ok('the ledger is unchanged by provenance',
+  ledgerFor(m, verdicts, A2.id).proposed === m.candidates.length)
 
 console.log('\n— QC geometry —')
 const q = m.qcRegions[0]

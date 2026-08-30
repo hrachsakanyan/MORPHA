@@ -351,15 +351,30 @@ export function RecordPage() {
             <div className="rec__kv"><span>Unreviewed</span><span className="mono">{ev.ledger.unreviewed}</span></div>
           </section>
 
-          {/* 7 · Model provenance, per slide, per run. */}
+          {/* 7 · Model provenance, per slide, per run (J.1). A re-analysed slide
+              lists both runs: the run that replaced, and the run it replaced.
+              Naming only the current one would hide the reason the slide carries
+              superseded objects at all (K.3). */}
           <section>
             <Eyebrow>Provenance</Eyebrow>
             {ev.slides.map((s) => (
-              <div key={s.slide.id} className="rec__kv">
-                <span>{s.slide.label}</span>
-                <span className="mono" style={{ color: s.slide.model ? undefined : 'var(--text-faint)' }}>
-                  {s.slide.model ? s.slide.model.id : analysisLabel(s.slide.analysis).toLowerCase()}
-                </span>
+              <div key={s.slide.id}>
+                {s.modelRuns.length === 0 ? (
+                  <div className="rec__kv">
+                    <span>{s.slide.label}</span>
+                    <span className="mono" style={{ color: 'var(--text-faint)' }}>
+                      {analysisLabel(s.slide.analysis).toLowerCase()}
+                    </span>
+                  </div>
+                ) : s.modelRuns.map((run) => (
+                  <div
+                    key={run.runAt}
+                    className={run.current ? 'rec__kv' : 'rec__kv rec__run--past'}
+                  >
+                    <span>{run.current ? s.slide.label : 'replaced'}</span>
+                    <span className="mono">{run.id} · {run.version}</span>
+                  </div>
+                ))}
               </div>
             ))}
           </section>

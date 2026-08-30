@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { coverageStats, largestUnviewedRegion, type CoverageStats } from '@/domain/coverage'
 import { computeDensity, type DensityResult } from '@/domain/density'
 import {
-  addLedgers, EMPTY_LEDGER, findingsForSlide, latestVerdicts, ledgerFor, type Ledger,
+  addLedgers, EMPTY_LEDGER, findingsForSlide, latestVerdicts, ledgerFor, modelRunsFor,
+  type Ledger, type ModelRun,
 } from '@/domain/derive'
 import { modelOutput, type SlideModelOutput } from '@/domain/synth'
 import { loadTissue, type TissueData } from '@/domain/tissue'
@@ -14,6 +15,8 @@ import type { Annotation, CaseDef, Finding, Rect, SlideDef } from '@/domain/type
 export interface SlideEvidence {
   slide: SlideDef
   model: SlideModelOutput
+  /** Every analysis run recorded against this slide, newest first (§J.1). */
+  modelRuns: ModelRun[]
   findings: Finding[]
   ledger: Ledger
   coverage: CoverageStats
@@ -86,6 +89,7 @@ export function useCaseEvidence(def: CaseDef | undefined, caseId: string): CaseE
       return {
         slide,
         model,
+        modelRuns: modelRunsFor(slide),
         findings: findingsForSlide(slide.id, model, session.verdicts, session.annotations),
         ledger: ledgerFor(model, session.verdicts, slide.id),
         coverage,

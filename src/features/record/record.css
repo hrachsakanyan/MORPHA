@@ -116,3 +116,15 @@
 @media (prefers-reduced-motion: no-preference) {
   .rec__hit { transition: outline-color 200ms var(--ease), background 200ms var(--ease); }
 }
+
+/* A run that a later run replaced (J.1, provenance per slide, per run). Indented
+   under the run that replaced it and set in the faint register: present, dated,
+   and visibly not the analysis the reader is adjudicating. No new colour — the
+   distinction is hierarchy, not emphasis. */
+.rec__run--past {
+  padding-left: var(--s-3);
+  margin-left: 1px;
+  border-left: 1px solid var(--hairline);
+  font-size: 11px;
+  color: var(--text-faint);
+}
