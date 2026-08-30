@@ -1,0 +1,72 @@
+@import './tokens.css';
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg-0);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* Numbers are data. Tabular figures everywhere, without exception. */
+.mono, .num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.01em;
+}
+
+.display { font-family: var(--font-display); letter-spacing: -0.01em; }
+
+h1, h2, h3, h4 { margin: 0; font-weight: 500; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+button:disabled { cursor: not-allowed; }
+
+a { color: inherit; text-decoration: none; }
+
+input, select { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 1px solid var(--measured);
+  outline-offset: 1px;
+}
+
+/* Section eyebrow used across rails and panels. */
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.hairline { border-bottom: 1px solid var(--hairline); }
+
+.scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; }
+.scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 4px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* OpenSeadragon resets — the canvas is tissue, nothing else. */
+.openseadragon-canvas { outline: none !important; }
+.openseadragon-canvas:focus { outline: none !important; }

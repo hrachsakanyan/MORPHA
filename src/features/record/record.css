@@ -1,0 +1,105 @@
+.rec {
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--h-casebar) minmax(0, 1fr);
+  background: var(--bg-0);
+}
+
+.rec__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--w-panel);
+  min-height: 0;
+}
+@media (max-width: 1160px) {
+  .rec__main { grid-template-columns: minmax(0, 1fr); }
+  .rec__rail { display: none; }
+}
+
+.rec__stream { padding: var(--s-7) var(--s-5) var(--s-8); }
+.rec__inner { max-width: 1024px; margin: 0 auto; }
+
+.rec__block { margin-bottom: var(--s-7); }
+
+/* The density block is the largest single element on the screen, and it renders
+   the fraction rather than a number with footnotes. */
+.rec__hero {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  flex-wrap: wrap;
+  min-height: 200px;
+  margin-top: var(--s-3);
+  padding: var(--s-5) var(--s-6);
+  border: 1px solid var(--hairline-strong);
+  border-left: 2px solid var(--measured);
+  border-radius: var(--r-2);
+  background: var(--bg-1);
+}
+.rec__fraction { display: grid; justify-items: center; gap: var(--s-2); }
+.rec__num {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 40px; color: var(--measured); line-height: 1;
+}
+.rec__rule { width: 168px; height: 1px; background: var(--text-dim); }
+.rec__den {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 26px; color: var(--text); line-height: 1;
+}
+.rec__eq { font-size: 22px; color: var(--text-faint); }
+.rec__result {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 52px; color: var(--measured); line-height: 1;
+}
+.rec__unit { font-size: 11px; color: var(--text-dim); margin-top: var(--s-2); }
+.rec__heroLinks { margin-left: auto; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+
+.rec__section { border-top: 1px solid var(--hairline); }
+.rec__sectionHead {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  height: 56px;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+}
+.rec__sectionHead:hover { color: var(--measured); }
+.rec__chev { color: var(--text-faint); transition: transform 140ms var(--ease); display: inline-block; }
+.rec__chev--open { transform: rotate(90deg); }
+.rec__sectionBody { padding: 0 0 var(--s-5) 20px; }
+
+.rec__group { margin-bottom: var(--s-4); }
+.rec__groupHead {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: var(--s-3); font-size: 13px; margin-bottom: 4px;
+}
+.rec__origin { font-size: 11px; color: var(--text-faint); margin-bottom: 6px; }
+.rec__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.rec__row {
+  display: grid; grid-template-columns: 16px 1fr auto;
+  gap: var(--s-3); align-items: center;
+  padding: 6px 0; border-top: 1px solid var(--hairline);
+  font-size: 12px;
+}
+.rec__meta { color: var(--text-faint); font-size: 11px; }
+
+.rec__rail {
+  border-left: 1px solid var(--hairline);
+  background: var(--bg-1);
+  padding: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.rec__kv {
+  display: flex; justify-content: space-between; gap: var(--s-3);
+  padding: 4px 0; font-size: 12px; color: var(--text-dim);
+}
+.rec__cov { display: flex; flex-direction: column; gap: 6px; margin-top: var(--s-2); }
+.rec__covRow {
+  display: grid; grid-template-columns: 28px 1fr auto;
+  align-items: center; gap: var(--s-2); font-size: 12px;
+}

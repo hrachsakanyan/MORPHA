@@ -1,0 +1,51 @@
+/* MORPHA design tokens — Phase 1 colour system, Phase 2 grid and stroke rules.
+   Colours are never written as raw hex outside this file. */
+:root {
+  /* ---- Background / surface ---- */
+  --bg-0: #0e0b10;          /* primary ground */
+  --bg-1: #1b1520;          /* secondary surface: rails, panels, bars */
+  --bg-2: #221a28;          /* raised surface: cards, chips, inputs */
+  --bg-3: #2b2132;          /* hover */
+  --hairline: #2a2230;
+  --hairline-strong: #3a2f43;
+
+  /* ---- Text ---- */
+  --text: #ebe3ee;
+  --text-dim: #a297ab;
+  --text-faint: #6b6270;
+
+  /* ---- Evidence registers. These carry meaning; never decorative. ---- */
+  --measured: #4cc9b0;      /* MEASURED — human confirmed or drawn */
+  --measured-dim: rgba(76, 201, 176, 0.16);
+  --inferred: #a46fc4;      /* INFERRED — model proposal */
+  --inferred-dim: rgba(164, 111, 196, 0.16);
+  --dismissed: #6b6270;     /* DISMISSED — rejected, retained */
+  --advisory: #f2c14e;      /* ADVISORY — scan QC */
+  --advisory-dim: rgba(242, 193, 78, 0.14);
+  --critical: #ff5c7a;
+  --tissue: #c86fa8;        /* H&E biological layer */
+
+  /* ---- Space scale: 4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 ---- */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+
+  /* ---- Radius: 0 / 2 / 4 only ---- */
+  --r-0: 0px; --r-1: 2px; --r-2: 4px;
+
+  /* ---- Fixed chrome sizes (Phase 2 §M vertical maths) ---- */
+  --h-casebar: 56px;
+  --h-strip: 76px;
+  --h-strip-collapsed: 28px;
+  --h-status: 32px;
+  --w-rail: 320px;
+  --w-panel: 360px;
+  --w-map: 288px;
+  --h-map: 240px;
+
+  /* ---- Type ---- */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}

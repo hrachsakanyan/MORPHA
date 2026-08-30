@@ -1,0 +1,30 @@
+{
+  "name": "morpha",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "MORPHA — digital pathology reading instrument. Phase 2 web demo.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty"
+  },
+  "dependencies": {
+    "openseadragon": "^5.0.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.0",
+    "zustand": "^5.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/openseadragon": "^3.0.10",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  },
+  "allowScripts": {}
+}

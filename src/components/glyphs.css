@@ -1,0 +1,8 @@
+.glyph { display: block; flex: none; }
+
+@keyframes morpha-spin { to { transform: rotate(360deg); } }
+.glyph--spin { animation: morpha-spin 1.1s linear infinite; transform-origin: 50% 50%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .glyph--spin { animation-duration: 3s; }
+}

@@ -1,0 +1,238 @@
+/* Vertical maths: 56 case bar + 76 slide strip + canvas + 32 status = viewport.
+   Horizontal: rails fixed, canvas fluid — the canvas is the only region whose
+   value scales with area. */
+.ws {
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--h-casebar) auto minmax(0, 1fr) var(--h-status);
+  background: var(--bg-0);
+  overflow: hidden;
+}
+
+.ws__main {
+  display: grid;
+  grid-template-columns: var(--rail-w, var(--w-rail)) minmax(0, 1fr) var(--panel-w, var(--w-panel));
+  min-height: 0;
+  transition: grid-template-columns 220ms var(--ease);
+}
+@media (prefers-reduced-motion: reduce) { .ws__main { transition: none; } }
+
+/* ── Case bar ──────────────────────────────────────────────────────── */
+.casebar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-4);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-1);
+}
+.casebar__accession { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+.casebar__sep { color: var(--text-faint); }
+.casebar__specimen { font-size: 13px; color: var(--text-dim); }
+/* Laterality must never require a click to verify. */
+.casebar__laterality { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; color: var(--text); }
+.casebar__slide { font-size: 12px; color: var(--text-faint); }
+.casebar__right { margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }
+
+/* ── Slide strip ───────────────────────────────────────────────────── */
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: var(--h-strip);
+  padding: 0 var(--s-4);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-0);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.strip--collapsed { height: var(--h-strip-collapsed); }
+
+.chipslide {
+  flex: none;
+  width: 96px;
+  height: 60px;
+  padding: var(--s-1) 6px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 2px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--bg-1);
+  text-align: left;
+  transition: border-color 140ms var(--ease), background 140ms var(--ease);
+}
+.chipslide:hover { background: var(--bg-2); }
+.chipslide--on { border-color: var(--measured); background: var(--bg-2); }
+.chipslide__top { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text); }
+.chipslide__meta { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-faint); }
+.chipslide__ring { margin-left: auto; }
+.chipslide--collapsed { width: auto; height: 20px; padding: 0 var(--s-2); grid-template-rows: 1fr; }
+
+/* ── Left rail ─────────────────────────────────────────────────────── */
+.rail {
+  width: 100%;
+  min-width: 0;
+  border-right: 1px solid var(--hairline);
+  background: var(--bg-1);
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  overflow: hidden auto;
+}
+.rail--collapsed { display: none; }
+.rail__section { display: flex; flex-direction: column; gap: var(--s-2); }
+.rail__head { display: flex; align-items: center; justify-content: space-between; }
+
+.layers__group { display: flex; flex-direction: column; gap: 2px; }
+.layers__groupHead {
+  display: flex; align-items: center; gap: var(--s-2);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  margin: var(--s-2) 0 2px;
+}
+.layers__rule { flex: 1; height: 1px; }
+
+.tools { display: flex; gap: var(--s-1); }
+.tool {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--bg-2);
+  color: var(--text-dim);
+  font-size: 15px;
+}
+.tool:hover:not(:disabled) { background: var(--bg-3); color: var(--text); }
+.tool--on { border-color: var(--measured); color: var(--measured); background: var(--measured-dim); }
+.tool:disabled { opacity: 0.3; }
+
+/* ── Canvas ────────────────────────────────────────────────────────── */
+.canvas {
+  position: relative;
+  min-width: 0;
+  background: var(--bg-0);
+  overflow: hidden;
+}
+/* A 1px accent line in authored-geometry teal — one of four simultaneous
+   signals that a drawing tool is armed. */
+.canvas--tool::before {
+  content: '';
+  position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: var(--measured);
+  z-index: 30;
+}
+
+/* ── Right panel ───────────────────────────────────────────────────── */
+.panel {
+  width: 100%;
+  min-width: 0;
+  border-left: 1px solid var(--hairline);
+  background: var(--bg-1);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+.panel--collapsed { display: none; }
+.panel__head { padding: var(--s-4) var(--s-4) var(--s-3); }
+.panel__body { padding: 0 var(--s-4) var(--s-4); overflow-y: auto; }
+
+/* ── Status bar ────────────────────────────────────────────────────── */
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: 0 var(--s-4);
+  border-top: 1px solid var(--hairline);
+  background: var(--bg-1);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.status__seg { display: inline-flex; align-items: center; gap: 6px; }
+.status__spacer { margin-left: auto; }
+.status__warn { color: var(--advisory); }
+.status__ok { color: var(--measured); }
+.status__scale { display: inline-flex; align-items: center; gap: 5px; }
+.status__rule { display: inline-block; height: 5px; border: 1px solid currentColor; border-top: none; }
+
+/* ── Cluster cards ─────────────────────────────────────────────────── */
+.cluster {
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--bg-2);
+  padding: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.cluster--active { border-color: var(--inferred); }
+.cluster--complete { opacity: 0.72; }
+.cluster__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
+.cluster__title { font-size: 12px; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.cluster__rank { font-size: 10px; color: var(--text-faint); font-family: var(--font-mono); }
+.cluster__meta { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.cluster__row { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: var(--s-2); font-size: 10px; color: var(--text-faint); }
+.cluster__qc { font-size: 11px; color: var(--advisory); }
+.cluster__actions { display: flex; gap: var(--s-2); margin-top: 2px; }
+
+.typehead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s-2); margin: var(--s-4) 0 var(--s-2);
+  font-size: 11px; color: var(--text-dim);
+}
+.typehead__counts { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-faint); }
+
+/* ── Density block ─────────────────────────────────────────────────── */
+.density { display: flex; flex-direction: column; gap: var(--s-3); }
+.fraction { display: grid; justify-items: center; gap: 2px; padding: var(--s-4) 0; }
+.fraction__num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 30px; color: var(--measured); line-height: 1.1; }
+.fraction__label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); }
+.fraction__rule { width: 168px; height: 1px; background: var(--text-dim); margin: var(--s-2) 0; }
+.fraction__den { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; color: var(--text); line-height: 1.2; }
+.fraction__eq { font-size: 14px; color: var(--text-faint); margin: var(--s-2) 0 0; }
+.fraction__result { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 34px; color: var(--measured); line-height: 1.1; }
+.fraction__unit { font-size: 11px; color: var(--text-dim); }
+.fraction__derived { font-size: 11px; color: var(--text-faint); margin-top: var(--s-2); text-align: center; }
+
+.trace { display: flex; flex-direction: column; gap: 2px; }
+.trace__row {
+  display: grid; grid-template-columns: 84px 1fr auto; gap: var(--s-2);
+  align-items: center; font-size: 11px; color: var(--text-dim);
+  padding: 5px 0; border-top: 1px solid var(--hairline);
+}
+.trace__k { color: var(--text-faint); }
+.link {
+  color: var(--measured);
+  border-bottom: 1px dashed rgba(76, 201, 176, 0.5);
+  font-size: 11px;
+}
+.link:hover { border-bottom-style: solid; }
+
+/* ── Open items sheet ──────────────────────────────────────────────── */
+.sheet {
+  position: fixed; inset: 0; z-index: 80;
+  display: grid; place-items: center;
+  background: rgba(14, 11, 16, 0.72);
+}
+.sheet__box {
+  width: 560px; max-width: calc(100vw - 48px);
+  background: var(--bg-1);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-2);
+  padding: var(--s-5);
+}
+.sheet__title { font-size: 14px; margin-bottom: var(--s-4); }
+.sheet__row {
+  display: grid; grid-template-columns: 34px 1fr auto;
+  gap: var(--s-3); align-items: center;
+  padding: var(--s-2) 0; border-top: 1px solid var(--hairline);
+  font-size: 12px; color: var(--text-dim);
+}
+.sheet__note { margin: var(--s-4) 0 var(--s-5); font-size: 12px; color: var(--text-faint); }
+.sheet__actions { display: flex; justify-content: flex-end; gap: var(--s-2); }
+
+.empty { font-size: 12px; color: var(--text-faint); line-height: 1.6; }

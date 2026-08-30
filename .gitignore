@@ -1,0 +1,13 @@
+# Dependencies and build output
+node_modules/
+dist/
+.vite/
+
+# Dev server logs
+*.log
+*.err
+
+# Slide assets. The WSI is ~500 MB and the Deep Zoom pyramid is 1.4 GB across
+# 182,166 tiles — both are derived, reproducible, and must never enter history.
+# See README.md for how the pyramid is generated from the SVS.
+data/

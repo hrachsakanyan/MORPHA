@@ -1,0 +1,93 @@
+/* The verification control. Exactly one element is permitted to float over
+   tissue, and this is it. */
+.vc {
+  position: absolute;
+  z-index: 40;
+  min-width: 300px;
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  background: rgba(14, 11, 16, 0.94);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+.vc__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-2);
+  font-size: 12px;
+}
+.vc__type { color: var(--text); }
+.vc__band { color: var(--text-faint); text-transform: capitalize; }
+.vc__qc { color: var(--advisory); }
+.vc__pos { color: var(--text-faint); font-size: 11px; }
+
+.vc__prior {
+  margin-bottom: var(--s-2);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: capitalize;
+}
+
+.vc__actions { display: flex; align-items: center; gap: var(--s-2); }
+
+.vc__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 28px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--bg-2);
+  font-size: 12px;
+  font-weight: 500;
+  /* No bounce, no flash. A clinical assertion, not a game action. */
+  transition: background 140ms var(--ease), border-color 140ms var(--ease);
+}
+.vc__btn:hover { background: var(--bg-3); }
+.vc__btn--confirm { border-color: rgba(76, 201, 176, 0.55); color: var(--measured); }
+.vc__btn--confirm:hover { background: var(--measured-dim); }
+.vc__btn--reject { border-color: var(--hairline-strong); color: var(--text-dim); }
+
+.vc__info {
+  margin-left: auto;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  color: var(--text-faint);
+  border-radius: var(--r-1);
+}
+.vc__info:hover { color: var(--text); background: var(--bg-2); }
+
+/* Reclassify replaces the three buttons in place — no modal, no dropdown. */
+.vc__chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.vc__chipsLabel { font-size: 11px; color: var(--text-faint); width: 100%; }
+.vc__chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 var(--s-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--bg-2);
+  font-size: 11px;
+}
+.vc__chip:hover { background: var(--bg-3); border-color: var(--measured); }
+.vc__cancel { width: 100%; text-align: right; font-size: 10px; color: var(--text-faint); }
+
+.vc__detail {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--hairline);
+}
+.vc__row {
+  display: flex; justify-content: space-between; gap: var(--s-4);
+  padding: 3px 0; font-size: 11px; color: var(--text-dim);
+}
+.vc__history {
+  margin-top: var(--s-2); padding-top: var(--s-2);
+  border-top: 1px solid var(--hairline);
+  font-size: 10px; color: var(--text-faint); text-transform: capitalize;
+}
