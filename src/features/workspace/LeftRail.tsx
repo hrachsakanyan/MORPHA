@@ -143,6 +143,13 @@ export function LeftRail({
                 title={`Microscope only, at or above ${CANDIDATE_MAG_THRESHOLD}×`}
                 onToggle={toggle('candidates')}
               />
+              {revealed && ws.superseded.length > 0 && slide.previousModel && (
+                <div className="empty" style={{ padding: '2px 4px 6px' }}>
+                  <span style={{ color: INK.inferred, opacity: 0.5 }}>◇↻</span>{' '}
+                  {ws.superseded.length} superseded by {slide.model?.id ?? 'the current run'} ·
+                  retained for audit, counted in nothing
+                </div>
+              )}
               {!revealed && (
                 <div className="empty" style={{ padding: '2px 4px 6px' }}>
                   {ws.model.candidates.length} candidates detected · suppressed until reveal.

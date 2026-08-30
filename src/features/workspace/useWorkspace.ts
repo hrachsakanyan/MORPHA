@@ -9,8 +9,8 @@ import { useSessions } from '@/state/store'
 import { useUi } from '@/state/ui'
 import * as registry from '@/state/coverageRegistry'
 import type {
-  Annotation, CaseDef, CaseSession, Cluster, Finding, ProposedFrame, QcRegion, QcState,
-  SlideDef, SlideSessionState,
+  Annotation, Candidate, CaseDef, CaseSession, Cluster, Finding, ProposedFrame, QcRegion,
+  QcState, SlideDef, SlideSessionState,
 } from '@/domain/types'
 
 export interface ClusterView extends Cluster {
@@ -45,6 +45,12 @@ export interface Workspace {
    * `frames` — only authored geometry is, and only authored geometry measures.
    */
   proposedFrame: ProposedFrame | null
+  /**
+   * Candidates from the run this analysis replaced (§K.3). Held apart from
+   * `model.candidates` all the way through, so nothing that counts can reach
+   * them. Read-First applies: they are inferred output like any other.
+   */
+  superseded: Candidate[]
   /** MPP is present and plausible — every measurement affordance depends on this. */
   measurementEnabled: boolean
   readOnly: boolean
@@ -73,7 +79,7 @@ export function useWorkspace(caseId: string | undefined): Workspace {
   const model = useMemo(
     () => (slide ? modelOutput(slide, tissue.state === 'ready' ? tissue.data : null) : {
       candidates: [], clusters: [], qcRegions: [], byId: new Map(), unassessableFraction: 0,
-      proposedFrame: null,
+      proposedFrame: null, supersededCandidates: [],
     } as SlideModelOutput),
     [slide, tissue],
   )
@@ -180,6 +186,11 @@ export function useWorkspace(caseId: string | undefined): Workspace {
     return p
   }, [model.proposedFrame, slideSession?.revealed, annotations])
 
+  const superseded = useMemo(
+    () => (slideSession?.revealed ? model.supersededCandidates : []),
+    [model.supersededCandidates, slideSession?.revealed],
+  )
+
   const qcState = useMemo(
     () => qcStateOf({ ...model, unassessableFraction }, dismissedQcIds),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,7 +237,7 @@ export function useWorkspace(caseId: string | undefined): Workspace {
   return {
     def, session, slide, slideSession, tissue, model, qcRegions, qcState,
     unassessableFraction, coverage, grid, findings, ledger, clusters, annotations,
-    frames, proposedFrame, measurementEnabled,
+    frames, proposedFrame, superseded, measurementEnabled,
     readOnly: session?.status === 'finalized',
     refreshCoverage,
   }

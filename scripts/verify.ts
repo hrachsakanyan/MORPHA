@@ -510,6 +510,112 @@ ok('every finding has a magnification to return to',
 ok('every finding has a slide to return to',
   recFindings.every((f) => f.slideId === A2.id))
 
+/* ── §K.3 — Superseded candidate state ─────────────────────────────── */
+console.log('\n— superseded candidates (§K.3) —')
+const sup = m.supersededCandidates
+ok('A2 carries superseded candidates from the replaced run', sup.length === 7, '(' + sup.length + ')')
+ok('the slide names the run they came from',
+  A2.previousModel?.id === 'mitosis-v4.1' && A2.previousModel?.version === '4.1.6')
+ok('they are deterministic', (() => {
+  const again = modelOutput({ ...A2, id: A2.id + '-sup-copy' }, tissue).supersededCandidates
+  return again.length === sup.length &&
+    again.every((c, k) => c.x === sup[k].x && c.y === sup[k].y && c.type === sup[k].type)
+})())
+ok('they land on tissue like any candidate', sup.every((c) => {
+  const gx = Math.floor(c.x / tissue.cellW), gy = Math.floor(c.y / tissue.cellH)
+  return tissue.mask[gy * tissue.gridW + gx] === 1
+}))
+ok('a slide with no previous run has none',
+  modelOutput({ ...A2, id: A2.id + '-norerun', previousModel: undefined }, tissue)
+    .supersededCandidates.length === 0)
+ok('a slide whose analysis failed has none',
+  modelOutput({ ...A2, id: A2.id + '-supfail', analysis: 'failed' }, tissue)
+    .supersededCandidates.length === 0)
+
+/* Distinct from Rejected — the whole point of the state. */
+const rejectedIds = new Set(
+  verdicts.filter((x) => x.kind === 'rejected').map((x) => x.candidateId),
+)
+ok('superseded is not rejected: no verdict exists against them',
+  sup.every((c) => !verdicts.some((x) => x.candidateId === c.id)))
+ok('no superseded candidate is in the rejected set',
+  sup.every((c) => !rejectedIds.has(c.id)))
+ok('rejected candidates are active-run candidates, not superseded', (() => {
+  const active = new Set(m.candidates.map((c) => c.id))
+  return [...rejectedIds].every((id) => active.has(id))
+})())
+ok('the two states cannot be conflated by id',
+  sup.every((c) => c.id.includes('-sup-')) &&
+  m.candidates.every((c) => !c.id.includes('-sup-')))
+
+/* Held apart from everything that counts. */
+ok('superseded are absent from the active candidate list',
+  sup.every((c) => !m.candidates.some((a) => a.id === c.id)))
+ok('superseded are absent from the byId index', sup.every((c) => !m.byId.has(c.id)))
+ok('superseded belong to no active cluster',
+  m.clusters.every((cl) => cl.candidateIds.every((id) => !id.includes('-sup-'))))
+ok('the ledger does not count them',
+  ledgerFor(m, verdicts, A2.id).proposed === m.candidates.length)
+ok('the ledger total still reconciles', (() => {
+  const l = ledgerFor(m, verdicts, A2.id)
+  return l.confirmed + l.rejected + l.reclassified + l.unreviewed === l.proposed
+})())
+
+/* Never a finding, and therefore never Record evidence or a numerator. */
+ok('a superseded candidate cannot become a finding',
+  findingsForSlide(A2.id, m, verdicts, []).every((f) => !f.candidateId?.includes('-sup-')))
+ok('inventing a verdict against one still produces no finding', (() => {
+  const forged = [...verdicts, v(sup[0].id, 'confirmed')]
+  const out = findingsForSlide(A2.id, m, forged, [])
+  return out.every((f) => f.candidateId !== sup[0].id)
+})())
+ok('the finding count is unchanged by their presence',
+  findingsForSlide(A2.id, m, verdicts, []).length === recFindings.length)
+ok('they add no Record evidence', (() => {
+  const ids = new Set(recFindings.map((f) => f.id))
+  return sup.every((c) => !ids.has(c.id))
+})())
+ok('forging verdicts on every superseded candidate moves no number', (() => {
+  const forged = [...verdicts, ...sup.map((c) => v(c.id, 'confirmed'))]
+  const before = computeDensity(frame, MPP, findingsForSlide(A2.id, m, verdicts, []), [], [])
+  const after = computeDensity(frame, MPP, findingsForSlide(A2.id, m, forged, []), [], [])
+  const lb = ledgerFor(m, verdicts, A2.id)
+  const la = ledgerFor(m, forged, A2.id)
+  return after.confirmed.length === before.confirmed.length &&
+    after.density === before.density &&
+    la.confirmed === lb.confirmed && la.proposed === lb.proposed
+})())
+
+/* Audit trail: retained, never deleted. */
+ok('verdict activity never removes them', (() => {
+  const busy = [...verdicts, ...sup.map((c) => v(c.id, 'rejected'))]
+  findingsForSlide(A2.id, m, busy, [])
+  ledgerFor(m, busy, A2.id)
+  return modelOutput(A2, tissue).supersededCandidates.length === sup.length
+})())
+ok('each carries the type the replaced run proposed',
+  sup.every((c) => typeof c.type === 'string' && c.type.length > 0))
+ok('each carries a score band like any candidate',
+  sup.every((c) => ['high', 'moderate', 'low'].includes(c.band)))
+
+/* Read-First: they are model output, so the reveal gate governs them. The
+   demo fixture leaves A2 unrevealed, which is the state Resume lands on. */
+ok('superseded live in model output, not in session state',
+  Array.isArray(modelOutput(A2, tissue).supersededCandidates))
+ok('the demo case leaves A2 unrevealed, so nothing inferred shows on arrival',
+  demo.seededSession?.revealed?.[A2.id] === false)
+
+/* Existing verification is untouched. */
+ok('confirm still produces a finding',
+  findingsForSlide(A2.id, m, [v(mit[5], 'confirmed')], []).length === 1)
+ok('reject still produces none',
+  findingsForSlide(A2.id, m, [v(mit[5], 'rejected')], []).length === 0)
+ok('reclassify still produces a finding under the new type', (() => {
+  const out = findingsForSlide(A2.id, m, [v(mit[5], 'reclassified', 'apoptotic_body')], [])
+  return out.length === 1 && out[0].type === 'apoptotic_body' &&
+    out[0].proposedType === 'mitotic_figure'
+})())
+
 console.log('\n— QC geometry —')
 const q = m.qcRegions[0]
 ok('QC polygon has area', Math.abs(polygonArea(q.polygon) - q.areaPx) < 1)

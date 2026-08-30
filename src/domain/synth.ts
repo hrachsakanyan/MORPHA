@@ -24,11 +24,21 @@ export interface SlideModelOutput {
   unassessableFraction: number
   /** A hotspot counting frame the model offers (§I.5). Never a measurement. */
   proposedFrame: ProposedFrame | null
+  /**
+   * Candidates from the run this analysis replaced (§K.3).
+   *
+   * Deliberately a separate list, never merged into `candidates`. Everything
+   * that counts, adjudicates or derives — the ledger, findings, the reveal
+   * gate, the density numerator — reads `candidates`, so a superseded object
+   * cannot become a finding or move a number by construction rather than by a
+   * filter somebody has to remember to write.
+   */
+  supersededCandidates: Candidate[]
 }
 
 const EMPTY: SlideModelOutput = {
   candidates: [], clusters: [], qcRegions: [], byId: new Map(), unassessableFraction: 0,
-  proposedFrame: null,
+  proposedFrame: null, supersededCandidates: [],
 }
 
 /** Fixed clinical sort order (D.2). Never sorted by model score. */
@@ -92,7 +102,7 @@ function generate(slide: SlideDef, tissue: TissueData): SlideModelOutput {
     // No analysis, no candidates, and therefore no hotspot to frame.
     return {
       candidates: [], clusters: [], qcRegions, byId: new Map(), unassessableFraction,
-      proposedFrame: null,
+      proposedFrame: null, supersededCandidates: [],
     }
   }
 
@@ -169,8 +179,62 @@ function generate(slide: SlideDef, tissue: TissueData): SlideModelOutput {
   return {
     candidates, clusters, qcRegions, byId, unassessableFraction,
     proposedFrame: proposeHotspotFrame(slide, clusters),
+    supersededCandidates: generateSuperseded(slide, tissue, cells, rand, mpp),
   }
 }
+
+/**
+ * Candidates from the run this analysis replaced (§K.3).
+ *
+ * Drawn from the same stream, after everything current, so adding them cannot
+ * perturb a single active candidate. They carry no verdicts and are never
+ * adjudicated: superseding is something that happened to the analysis, not a
+ * judgement anyone made about the object. That is what separates this from
+ * `Rejected`, where a named human declined the model's proposal.
+ */
+function generateSuperseded(
+  slide: SlideDef, tissue: TissueData, cells: number[], rand: () => number, mpp: number,
+): Candidate[] {
+  const plan = slide.synth?.superseded
+  if (!plan || plan.length === 0 || !slide.previousModel) return []
+
+  const out: Candidate[] = []
+  let n = 0
+  plan.forEach((spec, ci) => {
+    const centre = pickInteriorCell(tissue, cells, rand)
+    const spreadPx = (Math.sqrt(spec.members) * 190) / (mpp / 0.25)
+    const radiusPx = RADIUS_UM[spec.type] / mpp
+    let guard = 0
+    while (out.length < countThrough(plan, ci) && guard < spec.members * 40) {
+      guard++
+      const p = {
+        x: centre.x + gaussian(rand) * spreadPx,
+        y: centre.y + gaussian(rand) * spreadPx,
+      }
+      if (p.x < radiusPx || p.y < radiusPx) continue
+      if (p.x > slide.width - radiusPx || p.y > slide.height - radiusPx) continue
+      const gx = Math.floor(p.x / tissue.cellW)
+      const gy = Math.floor(p.y / tissue.cellH)
+      if (!tissue.mask[gy * tissue.gridW + gx]) continue
+      n++
+      const score = 0.5 + rand() * 0.45
+      out.push({
+        id: `${slide.id}-sup-${n}`,
+        slideId: slide.id,
+        clusterId: `${slide.id}-sup-cl-${ci + 1}`,
+        type: spec.type,
+        x: p.x, y: p.y, r: radiusPx,
+        score,
+        band: score >= 0.8 ? 'high' : score >= 0.6 ? 'moderate' : 'low',
+        qcAffected: false,
+      })
+    }
+  })
+  return out
+}
+
+const countThrough = (plan: Array<{ members: number }>, upTo: number) =>
+  plan.slice(0, upTo + 1).reduce((s, x) => s + x.members, 0)
 
 /**
  * The frame the model offers around the mitotic hotspot (§I.5).

@@ -104,6 +104,36 @@ export function CandidatesPanel({ ws, caseId }: { ws: Workspace; caseId: string 
         )
       })}
 
+      {ws.superseded.length > 0 && slide.previousModel && (
+        <section style={{ marginTop: 18 }}>
+          <div className="typehead">
+            {/* Violet at half strength: still inferred, no longer current. Not
+                neutral, because neutral is the dismissed register and nobody
+                dismissed these — the analysis was replaced underneath them. */}
+            <span style={{ color: 'var(--text)' }}>
+              <span style={{ color: 'var(--inferred)', opacity: 0.5 }}>◇↻</span> SUPERSEDED
+            </span>
+            <span className="typehead__counts">{ws.superseded.length}</span>
+          </div>
+          <div className="empty" style={{ padding: '2px 0 8px' }}>
+            Proposed by {slide.previousModel.id} · {slide.previousModel.version}, replaced by{' '}
+            {slide.model?.id ?? 'the current run'}. Retained for audit. No verdict was
+            ever recorded against them and they count toward nothing.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {ws.superseded.map((c, i) => (
+              <span
+                key={c.id}
+                className="mono superseded"
+                title={`${typeLabel(c.type)} · ${slide.previousModel!.id} ${slide.previousModel!.version} · superseded`}
+              >
+                #{i + 1}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div style={{ marginTop: 20, display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 11, color: 'var(--text-faint)' }}>
         <span><Kbd>Space</Kbd> next unreviewed</span>
         <span><Kbd>C</Kbd> confirm</span>

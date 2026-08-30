@@ -38,6 +38,11 @@ export interface SlideDef {
   analysis: AnalysisState
   analysisFailReason?: string
   model?: { id: string; version: string; runAt: string }
+  /**
+   * The run this slide's current analysis replaced (§K.3). Its candidates are
+   * retained as `Superseded` — never adjudicated, never deleted.
+   */
+  previousModel?: { id: string; version: string; runAt: string }
   /** Deterministic seed for this slide's synthetic model output. */
   seed: number
   /** Synthetic-generation shape, so each slide reads differently. */
@@ -47,6 +52,8 @@ export interface SlideDef {
 export interface SynthPlan {
   clusters: Array<{ type: CandidateType; members: number }>
   qc: Array<{ type: QcType; fraction: number }>
+  /** Candidates the previous run proposed, now superseded (§K.3). */
+  superseded?: Array<{ type: CandidateType; members: number }>
 }
 
 export interface CaseDef {

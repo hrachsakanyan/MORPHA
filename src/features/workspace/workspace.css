@@ -236,3 +236,15 @@
 .sheet__actions { display: flex; justify-content: flex-end; gap: var(--s-2); }
 
 .empty { font-size: 12px; color: var(--text-faint); line-height: 1.6; }
+
+/* `Superseded` candidates (§K.3): dashed, struck through, violet at half.
+   Still inferred — never adjudicated — but no longer the current analysis. */
+.superseded {
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px dashed var(--inferred);
+  border-radius: var(--r-1);
+  color: var(--inferred);
+  opacity: 0.5;
+  text-decoration: line-through;
+}

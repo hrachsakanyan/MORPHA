@@ -61,6 +61,10 @@ const A2 = slide({
   level: 'Level 2',
   seed: 4212,
   analysis: 'complete',
+  // A2 was re-analysed: v4.1.6 ran first, v4.2.1 replaced it. The earlier run's
+  // objects are retained as Superseded (§K.3) — never adjudicated, never
+  // deleted, and never counted.
+  previousModel: { id: 'mitosis-v4.1', version: '4.1.6', runAt: '2026-08-29T09:41:00Z' },
   synth: {
     // 47 proposed objects: 34 mitotic in two clusters, then the long tail.
     clusters: [
@@ -71,6 +75,10 @@ const A2 = slide({
       { type: 'cellular_density', members: 3 },
     ],
     qc: [{ type: 'fold', fraction: 0.012 }],
+    superseded: [
+      { type: 'mitotic_figure', members: 5 },
+      { type: 'cellular_density', members: 2 },
+    ],
   },
 })
 
