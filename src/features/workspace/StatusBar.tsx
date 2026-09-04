@@ -15,6 +15,7 @@ export function StatusBar({ ws, caseId }: { ws: Workspace; caseId: string }) {
   const cx = useView((s) => s.centreX)
   const cy = useView((s) => s.centreY)
   const tileFailures = useView((s) => s.tileFailures)
+  const retryTiles = useView((s) => s.retryTiles)
   const holdClear = useUi((s) => s.holdClear)
   const markSynced = useSessions((s) => s.markSynced)
 
@@ -85,7 +86,8 @@ export function StatusBar({ ws, caseId }: { ws: Workspace; caseId: string }) {
             type="button"
             className="link"
             style={{ color: 'inherit' }}
-            onClick={() => window.location.reload()}
+            onClick={() => retryTiles?.()}
+            disabled={!retryTiles}
           >
             Retry
           </button>

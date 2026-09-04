@@ -16,11 +16,12 @@ import { useView } from '@/state/view'
 import {
   amberHatch, darkHatch, fillBudget, glyph, INK, label, setDash, STROKE, tealHatch, vertexHandles,
 } from './paint'
+import {
+  addFailure, clearFailure, dropTileRecords, type FailedTile, type TileMatrixHolder,
+} from './tileRetry'
 import { VerificationControl } from './VerificationControl'
 import type { Workspace } from './useWorkspace'
 import type { Pt } from '@/domain/types'
-
-interface FailedTile { level: number; x: number; y: number }
 
 /** Grab zone for a frame edge, in screen px — constant at every magnification. */
 const HANDLE_TOL = 7
@@ -51,6 +52,27 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
   const viewerRef = useRef<OpenSeadragon.Viewer | null>(null)
   const [ready, setReady] = useState(false)
   const failedTiles = useRef<FailedTile[]>([])
+
+  /**
+   * Ask the viewer for the failed tiles again (I.2). Nothing else moves: the
+   * viewer, the tile source, the viewport, the layers and the session are all
+   * left exactly as they are, because a tile that failed to arrive is a
+   * transport fault and not a reason to lose the reader's place.
+   */
+  const retryFailedTiles = useCallback(() => {
+    const viewer = viewerRef.current
+    if (!viewer || failedTiles.current.length === 0) return
+    let dropped = 0
+    for (let i = 0; i < viewer.world.getItemCount(); i++) {
+      dropped += dropTileRecords(
+        viewer.world.getItemAt(i) as unknown as TileMatrixHolder, failedTiles.current,
+      )
+    }
+    // The count is not cleared here. It falls as the tiles actually arrive, so
+    // a retry that fails again leaves the failure standing rather than
+    // reporting a recovery that did not happen.
+    if (dropped > 0) viewer.forceRedraw()
+  }, [])
   /** Screen position of the focused candidate, for anchoring the verification control. */
   const [anchor, setAnchorState] = useState<{ x: number; y: number } | null>(null)
   const anchorRef = useRef<{ x: number; y: number } | null>(null)
@@ -122,10 +144,20 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
     })
     viewerRef.current = viewer
 
-    viewer.addHandler('tile-load-failed', (e: { tile?: { level: number; x: number; y: number } }) => {
+    viewer.addHandler('tile-load-failed', (e: { tile?: FailedTile }) => {
       if (!e.tile) return
-      failedTiles.current.push({ level: e.tile.level, x: e.tile.x, y: e.tile.y })
-      useView.getState().set({ tileFailures: failedTiles.current.length })
+      const next = addFailure(failedTiles.current, e.tile)
+      if (next === failedTiles.current) return
+      failedTiles.current = next
+      useView.getState().set({ tileFailures: next.length })
+    })
+
+    viewer.addHandler('tile-loaded', (e: { tile?: FailedTile }) => {
+      if (!e.tile || failedTiles.current.length === 0) return
+      const next = clearFailure(failedTiles.current, e.tile)
+      if (next.length === failedTiles.current.length) return
+      failedTiles.current = next
+      useView.getState().set({ tileFailures: next.length })
     })
 
     viewer.addHandler('open', () => {
@@ -138,6 +170,28 @@ export function Microscope({ ws, caseId }: { ws: Workspace; caseId: string }) {
       viewer.destroy()
     }
   }, [dzi])
+
+  /* The status bar offers the retry; the viewer owns it. */
+  useEffect(() => {
+    useView.getState().set({ retryTiles: retryFailedTiles })
+    return () => { useView.getState().set({ retryTiles: null }) }
+  }, [retryFailedTiles])
+
+  /**
+   * Tile failures belong to the slide being read, not to the viewer.
+   *
+   * Every demo slide is served from one pyramid, so a slide switch does not
+   * rebuild the viewer and A1's failures would otherwise still be counted while
+   * A2 is on screen. The records are dropped as well as the count, so the
+   * number going to zero means those tiles will genuinely be asked for again —
+   * not that a real failure was quietly hidden.
+   */
+  useEffect(() => {
+    if (failedTiles.current.length === 0) return
+    retryFailedTiles()
+    failedTiles.current = []
+    useView.getState().set({ tileFailures: 0 })
+  }, [slide?.id, retryFailedTiles])
 
   /* ── Live readout, coverage accrual, viewport persistence ───────── */
   const publish = useCallback(() => {

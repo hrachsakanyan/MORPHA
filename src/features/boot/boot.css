@@ -1,0 +1,452 @@
+/* The entry sequence.
+
+   One idea, staged: the reader reads, and only then does the model speak.
+   A ruled field resolves over a specimen, the specimen pulls into focus, a read
+   passes over it row by row uncovering the tissue it has seen, the wordmark
+   settles, the model's proposals arrive violet once the read has earned them,
+   and two of them cross into teal. Ground is --bg-0, the same ground the
+   application stands on, so the hand-off is a lift rather than a flash. */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--bg-0);
+
+  /* The field is sized once, here, and everything on it is derived from that
+     one measure: type, spacing, marks and rules all scale together, and the
+     composition holds its proportions from a phone to a reporting monitor. */
+  --field-w: min(90vw, 1120px, calc(72vh * 24 / 14));
+  --cell: calc(var(--field-w) / 24);
+  --obj: max(11px, calc(var(--cell) * 0.44));
+  --rule: color-mix(in srgb, var(--text) 16%, transparent);
+
+  transition: opacity 440ms var(--ease);
+}
+.boot--leaving { opacity: 0; pointer-events: none; }
+
+/* The hand-off. The field lifts very slightly towards the reader as it goes,
+   so the entry reads as being passed through rather than drawn back. */
+.boot__stage {
+  transition: opacity 440ms var(--ease), transform 440ms var(--ease);
+}
+.boot--leaving .boot__stage { opacity: 0; transform: scale(1.03); }
+
+.boot__frame {
+  width: var(--field-w);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 0.36);
+  animation: boot-in 700ms var(--ease) both;
+}
+@keyframes boot-in {
+  from { opacity: 0; transform: scale(1.016); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Stage 1 · the field ──────────────────────────────────────────── */
+
+/* A graticule, not a decoration: the ruled reticle of an eyepiece, and the grid
+   the product actually accrues coverage on. The cell count is fixed and the
+   box carries the matching aspect ratio, so every cell is square by
+   construction and the field can never distort at any viewport. */
+.boot__field {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 24 / 14;
+  border: 1px solid var(--hairline);
+  /* What a read row is worth if the pyramid is not on disk. The tiles paint
+     over this when they are; when they are not, the read still leaves a trace
+     and the sequence reads exactly as it always did. */
+  background-color: color-mix(in srgb, var(--text) 5%, var(--bg-0));
+}
+
+/* The specimen itself. Real tiles, laid out square and cropped to cover, so
+   nothing is ever stretched. Held well down in opacity: this is the ground the
+   wordmark stands on, not the subject of the screen. */
+.boot__tissue {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0.14;
+  animation: boot-focus 1800ms var(--ease) 480ms both;
+  will-change: filter;
+}
+.boot__tissue > i {
+  position: absolute;
+  /* Overlap="1": every interior tile carries one duplicated pixel of its
+     neighbours per edge. 256/254 crops it back off so the block reads as one
+     continuous field, and the hair of overdraw closes the subpixel seam that
+     fractional tile boundaries would otherwise open. */
+  background-size: 100.7874% 100.7874%;
+  background-position: center;
+  background-repeat: no-repeat;
+  transform: scale(1.012);
+}
+
+/* Out of focus, then resolved — which is what the first seconds at a
+   microscope actually are. It runs once, with the read, and then stops. */
+@keyframes boot-focus {
+  from { filter: saturate(1.3) contrast(1.06) blur(9px); }
+  to   { filter: saturate(1.3) contrast(1.06) blur(0); }
+}
+
+/* The graticule rules the specimen, so it is drawn over the read rather than
+   under it — an eyepiece reticle, and the grid coverage accrues on. */
+.boot__grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--rule) 0 1px, transparent 1px),
+    linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px);
+  background-size: calc(100% / 24) calc(100% / 14);
+}
+
+/* Registration marks. Four corners, one weight brighter than the rule, which is
+   what makes the field read as an examined area rather than as wallpaper. */
+.boot__corner {
+  position: absolute;
+  width: calc(var(--cell) * 0.78);
+  height: calc(var(--cell) * 0.78);
+  border: 1px solid var(--text);
+}
+.boot__corner--tl { top: -1px; left: -1px;  border-right: 0; border-bottom: 0; }
+.boot__corner--tr { top: -1px; right: -1px; border-left: 0;  border-bottom: 0; }
+.boot__corner--bl { bottom: -1px; left: -1px;  border-right: 0; border-top: 0; }
+.boot__corner--br { bottom: -1px; right: -1px; border-left: 0;  border-top: 0; }
+
+/* ── Stage 2 · the read ───────────────────────────────────────────── */
+
+/* Coverage, accruing the way a pathologist actually works a slide: row by row,
+   turning at the margin, never a wipe. Each row is an opaque cover that shrinks
+   off its own delay, uncovering the tissue underneath — so what the read leaves
+   behind is the specimen, and a row not yet read is simply ground. One scaleX
+   per row, so the whole trace is compositor work. */
+.boot__read {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.boot__row {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+.boot__cover,
+.boot__head {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(1);
+  /* The cover retreats towards the far margin, so the tissue is uncovered from
+     the near one: a row read left to right shrinks its cover rightwards. */
+  transform-origin: right center;
+  animation: boot-read 600ms var(--ease) both;
+  will-change: transform;
+}
+/* The turn at the margin: every second row is read back the other way. */
+.boot__row:nth-child(even) .boot__cover,
+.boot__row:nth-child(even) .boot__head { transform-origin: left center; }
+
+/* Unread tissue is simply not yet on screen. */
+.boot__cover { background: var(--bg-0); }
+
+/* The head of the read, riding the cover's moving edge. It belongs to the
+   motion and not to the result, so it is gone by the time the row lands. */
+.boot__head {
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--text) 26%, transparent) 0%, transparent 34%);
+  animation: boot-read 600ms var(--ease) both, boot-head 600ms var(--ease) both;
+}
+.boot__row:nth-child(even) .boot__head {
+  background: linear-gradient(to left,
+    color-mix(in srgb, var(--text) 26%, transparent) 0%, transparent 34%);
+}
+@keyframes boot-read {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+/* Starts dark so a row that has not been reached yet shows no head at all. */
+@keyframes boot-head {
+  0%        { opacity: 0; }
+  14%, 70%  { opacity: 1; }
+  100%      { opacity: 0; }
+}
+
+/* ── Stage 3 · the wordmark ───────────────────────────────────────── */
+
+.boot__centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--cell) * 0.44);
+}
+
+/* Tissue is the ground the wordmark stands on, so the wordmark is given ground
+   to stand on: a soft settling of the specimen directly under the two lines of
+   type, and nowhere else. Absolutely positioned, so it is not a flex item. */
+.boot__centre::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 82%;
+  height: 52%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(ellipse at center,
+    color-mix(in srgb, var(--bg-0) 86%, transparent) 0%,
+    color-mix(in srgb, var(--bg-0) 60%, transparent) 46%,
+    transparent 74%);
+  pointer-events: none;
+}
+
+/* The product's own display face, at the product's own text weight. */
+.boot__word {
+  margin: 0;
+  /* Positioned, so the type paints over the scrim rather than under it. */
+  position: relative;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: max(30px, calc(var(--field-w) * 0.108));
+  line-height: 1;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* Tracking opens wide and closes to its final value, so the wordmark settles
+   rather than simply arriving. The negative margin cancels the trailing
+   letter-space at the value the animation ends on, which is the value that has
+   to be optically centred. */
+.boot__letters {
+  display: inline-block;
+  margin-right: -0.16em;
+  letter-spacing: 0.16em;
+  animation: boot-track 1560ms var(--ease) 1000ms both;
+  will-change: letter-spacing;
+}
+.boot__letters > span {
+  display: inline-block;
+  opacity: 0;
+  animation: boot-letter 860ms var(--ease) both;
+  will-change: transform, opacity, filter;
+}
+@keyframes boot-track {
+  from { letter-spacing: 0.30em; }
+  to   { letter-spacing: 0.16em; }
+}
+/* Out of focus, resolving, sharp. The same thing the field is doing, done to
+   type: no scale, no overshoot, nothing that arrives from off-screen. */
+@keyframes boot-letter {
+  from { opacity: 0;   transform: translate3d(0, 10px, 0); filter: blur(7px); }
+  58%  { opacity: 0.9; }
+  to   { opacity: 1;   transform: translate3d(0, 0, 0);    filter: blur(0); }
+}
+
+/* ── Stage 4 · the line beneath ───────────────────────────────────── */
+
+.boot__tag {
+  margin: 0 -0.28em 0 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.95em;
+  font-family: var(--font-mono);
+  font-size: max(8px, calc(var(--field-w) * 0.0112));
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+  animation: boot-rise 560ms var(--ease) 2560ms both;
+  will-change: transform, opacity, filter;
+}
+.boot__tag > i {
+  flex: none;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+@keyframes boot-rise {
+  from { opacity: 0; transform: translate3d(0, 5px, 0); filter: blur(3px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);   filter: blur(0); }
+}
+
+/* ── Stage 5 · what the model proposes ────────────────────────────── */
+
+/* Proposals land on cell centres, because in this product a candidate is a
+   position and not an ornament. They arrive violet — inferred, offered, not
+   yet believed — and nothing about them is allowed to look like a conclusion. */
+.boot__objects { position: absolute; inset: 0; }
+
+.boot__object {
+  position: absolute;
+  width: var(--obj);
+  height: var(--obj);
+  margin: calc(var(--obj) / -2) 0 0 calc(var(--obj) / -2);
+  opacity: 0;
+  animation: boot-object 440ms var(--ease) var(--in) both;
+}
+@keyframes boot-object { from { opacity: 0; } to { opacity: 1; } }
+
+.boot__ring {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--inferred);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--bg-0) 62%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--bg-0) 45%, transparent);
+  animation: boot-settle 440ms var(--ease) var(--in) both;
+  will-change: transform;
+}
+.boot__core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2.5px;
+  height: 2.5px;
+  margin: -1.25px 0 0 -1.25px;
+  border-radius: 50%;
+  background: var(--inferred);
+}
+/* Settling into place rather than appearing at it: the ring closes on the
+   object the way an objective comes to rest. */
+@keyframes boot-settle {
+  from { transform: scale(1.8); }
+  to   { transform: scale(1); }
+}
+
+/* ── Stage 6 · the membrane ───────────────────────────────────────── */
+
+/* The one beat the entry exists for. A proposal a reader has confirmed stops
+   being a proposal: it is redrawn in the measured register, and the single
+   ring that leaves it is the confirmation, not an effect. */
+.boot__object--confirmed .boot__ring {
+  animation:
+    boot-settle 440ms var(--ease) var(--in) both,
+    boot-confirm-ring 480ms var(--ease) var(--cf) both;
+}
+.boot__object--confirmed .boot__core {
+  animation: boot-confirm-core 480ms var(--ease) var(--cf) both;
+}
+@keyframes boot-confirm-ring {
+  from { border-color: var(--inferred); }
+  to   { border-color: var(--measured); }
+}
+@keyframes boot-confirm-core {
+  from { background: var(--inferred); }
+  to   { background: var(--measured); }
+}
+.boot__pulse {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--measured);
+  border-radius: 50%;
+  opacity: 0;
+  animation: boot-pulse 700ms var(--ease) var(--cf) both;
+  will-change: transform, opacity;
+}
+@keyframes boot-pulse {
+  from { opacity: 0.5; transform: scale(1); }
+  to   { opacity: 0;   transform: scale(2.4); }
+}
+
+/* ── The baseline: the two registers, named ───────────────────────── */
+
+/* Each key appears with the register it names, so the legend is written by the
+   sequence rather than printed ahead of it. */
+.boot__base {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  font-family: var(--font-mono);
+  font-size: max(8px, calc(var(--field-w) * 0.0095));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+}
+.boot__legend {
+  display: flex;
+  gap: calc(var(--cell) * 0.62);
+}
+.boot__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.boot__key::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid;
+}
+.boot__key--inferred::before { border-color: var(--inferred); }
+.boot__key--measured::before { border-color: var(--measured); }
+.boot__key--inferred { animation: boot-rise 440ms var(--ease) 2760ms both; }
+.boot__key--measured { animation: boot-rise 440ms var(--ease) 3760ms both; }
+
+/* The specimen, stated rather than implied. Real scanner-reported numbers. */
+.boot__specimen {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: boot-rise 560ms var(--ease) 2560ms both;
+}
+/* Below this the baseline would have to compete for its own width. The legend
+   is the half that carries meaning, so the specimen is the half that goes. */
+@media (max-width: 640px) {
+  .boot__specimen { display: none; }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────── */
+
+/* The finished composition, immediately: a field fully read, a settled
+   wordmark, six proposals of which two are measured. The screen still holds
+   briefly and still fades out, so the entry stays deliberate rather than a
+   flash — the motion is what is removed, not the sequence's meaning. */
+@media (prefers-reduced-motion: reduce) {
+  .boot__frame,
+  .boot__tissue,
+  .boot__cover,
+  .boot__letters,
+  .boot__letters > span,
+  .boot__tag,
+  .boot__object,
+  .boot__ring,
+  .boot__object--confirmed .boot__ring,
+  .boot__object--confirmed .boot__core,
+  .boot__key--inferred,
+  .boot__key--measured,
+  .boot__specimen {
+    animation: none;
+  }
+  .boot__frame { opacity: 1; transform: none; }
+  .boot__tissue { filter: saturate(1.3) contrast(1.06); }
+  .boot__cover { transform: scaleX(0); }
+  .boot__head { display: none; }
+  .boot__letters { letter-spacing: 0.16em; }
+  .boot__letters > span { opacity: 1; transform: none; filter: none; }
+  .boot__tag,
+  .boot__key--inferred,
+  .boot__key--measured,
+  .boot__specimen { opacity: 1; transform: none; filter: none; }
+  .boot__object { opacity: 1; }
+  .boot__ring { transform: none; }
+  .boot__object--confirmed .boot__ring { border-color: var(--measured); }
+  .boot__object--confirmed .boot__core { background: var(--measured); }
+  .boot__pulse { display: none; }
+}

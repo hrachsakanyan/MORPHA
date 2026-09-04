@@ -14,6 +14,12 @@ interface ViewState {
   /** Visible slide region in image coordinates — the map's viewport rectangle. */
   bounds: { x: number; y: number; w: number; h: number } | null
   tileFailures: number
+  /**
+   * Retry the tiles that failed, registered by the mounted viewer. Held here
+   * beside the count because the status bar shows the count and offers the
+   * retry, and the two must never disagree about which viewer they mean.
+   */
+  retryTiles: (() => void) | null
   ready: boolean
   set: (v: Partial<Omit<ViewState, 'set' | 'reset'>>) => void
   reset: () => void
@@ -26,6 +32,7 @@ export const useView = create<ViewState>((set) => ({
   imageZoom: 0,
   bounds: null,
   tileFailures: 0,
+  retryTiles: null,
   ready: false,
   set: (v) => set(v),
   reset: () => set({

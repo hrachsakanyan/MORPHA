@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { LibraryPage } from '@/features/library/LibraryPage'
 import { WorkspacePage } from '@/features/workspace/WorkspacePage'
 import { RecordPage } from '@/features/record/RecordPage'
 import { NotFound } from '@/components/NotFound'
+import { BootScreen } from '@/features/boot/BootScreen'
 import { markHydrated, useSessions } from '@/state/store'
 
 /**
@@ -20,6 +21,7 @@ const router = createBrowserRouter([
 
 export function App() {
   const hydrated = useSessions((s) => s.hydrated)
+  const [booting, setBooting] = useState(true)
 
   useEffect(() => {
     // Zustand's persist middleware does not fire rehydration when the key is
@@ -28,19 +30,15 @@ export function App() {
     return () => window.clearTimeout(t)
   }, [])
 
-  if (!hydrated) return <BootScreen />
-  return <RouterProvider router={router} />
-}
-
-function BootScreen() {
+  /*
+   * The entry sequence covers the app rather than replacing it, so the router
+   * mounts underneath while it plays and the first route is warm by the time it
+   * lifts. Hydration is a tick, so this is an entry, not a loading gate.
+   */
   return (
-    <div
-      style={{
-        height: '100%', display: 'grid', placeItems: 'center',
-        color: 'var(--text-faint)', letterSpacing: '0.28em', fontSize: 11,
-      }}
-    >
-      <span className="display">MORPHA</span>
-    </div>
+    <>
+      {hydrated && <RouterProvider router={router} />}
+      {booting && <BootScreen onDone={() => setBooting(false)} />}
+    </>
   )
 }

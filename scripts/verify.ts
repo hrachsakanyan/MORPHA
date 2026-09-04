@@ -20,7 +20,18 @@ import {
   rectFromCorners, rectPolygonOverlapArea, resizeRect, vertexAt,
 } from '@/lib/geometry'
 import { CASES } from '@/domain/cases'
+import { REVEAL_THRESHOLD } from '@/domain/constants'
 import { FLYBACK_LAYERS } from '@/features/record/flyback'
+import {
+  addFailure, clearFailure, dropTileRecords, tileKey,
+  type FailedTile, type TileMatrixHolder,
+} from '@/features/workspace/tileRetry'
+import {
+  BOOT, BOOT_MARKS, confirmDelay, coverageAt, FIELD, letterDelay, markDelay,
+  markPosition, marksSettledMs, membraneSettledMs, readSettledMs, rowDelay,
+  SPECIMEN, specimenTiles, wordmarkSettledMs, WORDMARK as BOOT_WORDMARK,
+} from '@/features/boot/timing'
+import { readFileSync } from 'node:fs'
 import type { TissueData } from '@/domain/tissue'
 import type { Annotation, Finding, ProposedFrame, Pt, Verdict } from '@/domain/types'
 
@@ -665,6 +676,440 @@ ok('superseded candidates still reach no finding now that their run is named',
     .every((f) => !f.candidateId?.includes('-sup-')))
 ok('the ledger is unchanged by provenance',
   ledgerFor(m, verdicts, A2.id).proposed === m.candidates.length)
+
+/* -- Tile retry -------------------------------------------------- */
+console.log('\n— tile retry —')
+
+const t1: FailedTile = { level: 14, x: 3, y: 7 }
+const t2: FailedTile = { level: 14, x: 4, y: 7 }
+const t3: FailedTile = { level: 15, x: 3, y: 7 }
+
+/* Tracking. */
+ok('a failure is recorded', addFailure([], t1).length === 1)
+ok('two different tiles are two failures', addFailure(addFailure([], t1), t2).length === 2)
+ok('the same tile failing twice is still one failure',
+  addFailure(addFailure([], t1), { ...t1 }).length === 1)
+ok('the same coordinates at another level are a different tile',
+  addFailure(addFailure([], t1), t3).length === 2)
+ok('recording a duplicate returns the list unchanged, so no render is triggered', (() => {
+  const list = addFailure([], t1)
+  return addFailure(list, { ...t1 }) === list
+})())
+ok('a recorded failure keeps its coordinates',
+  tileKey(addFailure([], t1)[0]) === '14/3/7')
+
+/* Clearing on success. */
+ok('a tile that loads retires its own failure',
+  clearFailure(addFailure(addFailure([], t1), t2), t1).length === 1)
+ok('the count reaches zero when every failed tile loads', (() => {
+  let list = addFailure(addFailure([], t1), t2)
+  list = clearFailure(list, t1)
+  list = clearFailure(list, t2)
+  return list.length === 0
+})())
+ok('an unrelated tile loading clears nothing',
+  clearFailure(addFailure([], t1), t3).length === 1)
+ok('a failure that persists is still reported after a retry', (() => {
+  // t1 recovers, t2 fails again: the reader is told about t2 and only t2.
+  let list = addFailure(addFailure([], t1), t2)
+  list = clearFailure(list, t1)
+  list = addFailure(list, t2)
+  return list.length === 1 && tileKey(list[0]) === tileKey(t2)
+})())
+
+/* Targeting: only the failed records are dropped. */
+function fakeImage(): TileMatrixHolder & { tilesMatrix: any } {
+  return {
+    tilesMatrix: {
+      14: { 3: { 7: 'failed-tile', 8: 'good-tile' }, 4: { 7: 'failed-tile' } },
+      15: { 3: { 7: 'good-tile' } },
+    },
+    _needsDraw: false,
+  }
+}
+ok('retry drops exactly the failed tile records', (() => {
+  const img = fakeImage()
+  const dropped = dropTileRecords(img, [t1, t2])
+  return dropped === 2 &&
+    img.tilesMatrix[14][3][7] === undefined &&
+    img.tilesMatrix[14][4][7] === undefined
+})())
+ok('retry leaves every other tile record alone', (() => {
+  const img = fakeImage()
+  dropTileRecords(img, [t1])
+  return img.tilesMatrix[14][3][8] === 'good-tile' &&
+    img.tilesMatrix[14][4][7] === 'failed-tile' &&
+    img.tilesMatrix[15][3][7] === 'good-tile'
+})())
+ok('retry marks the image for redraw so the request is actually issued', (() => {
+  const img = fakeImage()
+  dropTileRecords(img, [t1])
+  return img._needsDraw === true
+})())
+ok('retrying nothing touches nothing', (() => {
+  const img = fakeImage()
+  return dropTileRecords(img, []) === 0 && img._needsDraw === false
+})())
+ok('retrying a tile the viewer never held is a no-op, not a crash', (() => {
+  const img = fakeImage()
+  return dropTileRecords(img, [{ level: 99, x: 1, y: 1 }]) === 0 &&
+    img._needsDraw === false
+})())
+ok('retry is idempotent: the second pass drops nothing', (() => {
+  const img = fakeImage()
+  dropTileRecords(img, [t1])
+  return dropTileRecords(img, [t1]) === 0
+})())
+ok('retry never clears the failures itself — only a loaded tile does', (() => {
+  const img = fakeImage()
+  const list = addFailure(addFailure([], t1), t2)
+  dropTileRecords(img, list)
+  return list.length === 2
+})())
+
+/* The whole point: no page reload, and nothing else reset with it. */
+const statusBarSrc = readFileSync('src/features/workspace/StatusBar.tsx', 'utf8')
+const microscopeSrc = readFileSync('src/features/workspace/Microscope.tsx', 'utf8')
+ok('Retry does not reload the page', !statusBarSrc.includes('location.reload'))
+ok('nothing in the workspace reloads the page', !microscopeSrc.includes('location.reload'))
+ok('Retry calls the viewer-registered retry', statusBarSrc.includes('retryTiles?.()'))
+ok('retry does not destroy or rebuild the viewer', (() => {
+  const retry = microscopeSrc.slice(
+    microscopeSrc.indexOf('const retryFailedTiles'),
+    microscopeSrc.indexOf('/* ── Viewer lifecycle'),
+  )
+  return retry.length > 0 && !retry.includes('destroy(') && !retry.includes('open(')
+})())
+ok('the failure count lives in the view readout, not in the session',
+  !readFileSync('src/state/store.ts', 'utf8').includes('tileFailures'))
+
+/* Slide switching: the demo slides share one pyramid, so the viewer is not
+   rebuilt and the failures have to be re-scoped by hand. */
+ok('failure state is re-scoped on a slide switch, not on the tile source', (() => {
+  const i = microscopeSrc.indexOf('Tile failures belong to the slide being read')
+  if (i < 0) return false
+  const effect = microscopeSrc.slice(i, i + 900)
+  return effect.includes('failedTiles.current = []') &&
+    effect.includes('tileFailures: 0') &&
+    effect.includes('[slide?.id')
+})())
+ok('a slide switch retries the failed tiles rather than only hiding the count', (() => {
+  const i = microscopeSrc.indexOf('Tile failures belong to the slide being read')
+  const effect = microscopeSrc.slice(i, i + 900)
+  return effect.indexOf('retryFailedTiles()') < effect.indexOf('failedTiles.current = []')
+})())
+ok('the viewer is still rebuilt only when the tile source changes',
+  microscopeSrc.includes('}, [dzi])'))
+
+/* -- Entry sequence ------------------------------------------------ */
+console.log('\n— entry sequence —')
+
+const bootCss = readFileSync('src/features/boot/boot.css', 'utf8')
+const bootTsx = readFileSync('src/features/boot/BootScreen.tsx', 'utf8')
+const bootTiming = readFileSync('src/features/boot/timing.ts', 'utf8')
+const appTsx = readFileSync('src/App.tsx', 'utf8')
+
+/* Comments describe the intent; only the declarations are evidence of it. */
+const bootCssCode = bootCss.replace(/\/\*[\s\S]*?\*\//g, '')
+const bootTsxCode = bootTsx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
+function cssRule(selector: string): string {
+  const i = bootCss.indexOf(selector)
+  return i < 0 ? '' : bootCss.slice(i, bootCss.indexOf('}', i))
+}
+function cssDelayIn(selector: string): number {
+  const m = /animation:[^;]*?(\d+)ms[^;]*?(\d+)ms/.exec(cssRule(selector))
+  return m ? Number(m[2]) : NaN
+}
+/* Whole keyframe block: up to the closing brace that sits in the first column. */
+function keyframes(name: string): string {
+  return (new RegExp('@keyframes ' + name + ' \\{[\\s\\S]*?\\n\\}').exec(bootCss) ?? [''])[0]
+}
+
+/* Choreography: the stages are ordered, and the order is the concept. */
+ok('the read begins while the field is still resolving',
+  BOOT.readStartMs > 0 && BOOT.readStartMs < BOOT.fieldMs)
+ok('the read is a sequence of rows, not a single wipe',
+  BOOT.readRowStaggerMs > 0 && BOOT.readRowStaggerMs < BOOT.readRowMs)
+ok('the read turns at the margin rather than restarting',
+  bootCss.includes('.boot__row:nth-child(even) .boot__cover'))
+ok('an unread row is ground, not a dimmed picture of tissue',
+  cssRule('.boot__cover {').includes('background: var(--bg-0)'))
+ok('the read uncovers rather than paints over', (() => {
+  const kf = keyframes('boot-read')
+  return /from \{ transform: scaleX\(1\); \}/.test(kf) &&
+    /to\s+\{ transform: scaleX\(0\); \}/.test(kf)
+})())
+ok('the head of the read belongs to the motion, not to the result', (() => {
+  const kf = keyframes('boot-head')
+  // It must start dark, or every row would show a head before it was reached.
+  return /0%\s*\{ opacity: 0; \}/.test(kf) && /100%\s*\{ opacity: 0; \}/.test(kf)
+})())
+ok('the wordmark waits until the read is under way',
+  BOOT.letterStartMs > rowDelay(0))
+ok('characters are staggered, not revealed together',
+  BOOT.letterStaggerMs >= 60 && BOOT.letterStaggerMs <= 160)
+ok('each character moves for a restrained duration',
+  BOOT.letterDurationMs >= 500 && BOOT.letterDurationMs <= 1000)
+ok('the stagger is short enough to read as one word, not a queue',
+  letterDelay(BOOT_WORDMARK.length - 1) - BOOT.letterStartMs < BOOT.letterDurationMs)
+ok('the tracking settles with the last character, not before it',
+  BOOT.letterStartMs + BOOT.trackMs >= wordmarkSettledMs() - 100 &&
+  BOOT.letterStartMs + BOOT.trackMs <= wordmarkSettledMs() + 100)
+ok('the line beneath waits for the wordmark to finish settling',
+  BOOT.subtitleStartMs >= wordmarkSettledMs())
+
+/* Read-first, which is the whole reason the sequence is shaped this way. */
+ok('the model says nothing until the read has crossed the reveal threshold',
+  coverageAt(BOOT.revealMs) >= REVEAL_THRESHOLD,
+  '(' + Math.round(coverageAt(BOOT.revealMs) * 100) + '% at reveal)')
+ok('and it speaks at that crossing rather than long after it',
+  coverageAt(BOOT.revealMs - BOOT.readRowStaggerMs) < REVEAL_THRESHOLD)
+ok('the field is still being read when the proposals arrive',
+  BOOT.revealMs < readSettledMs())
+ok('proposals are staggered, so they read as findings rather than a layer',
+  BOOT.markStaggerMs > 0 && BOOT.markStaggerMs < BOOT.markDurationMs)
+ok('nothing is confirmed before it has been proposed',
+  BOOT_MARKS.every((m, i) => {
+    const c = confirmDelay(i)
+    return !m.confirmed || (c !== null && c >= markDelay(i) + BOOT.markDurationMs)
+  }))
+ok('the membrane is crossed only once every proposal is on screen',
+  BOOT.membraneMs >= marksSettledMs())
+ok('the two registers are introduced in the order the sequence earns them',
+  BOOT.revealMs < BOOT.membraneMs)
+
+/* The ending. */
+const bootSettled = Math.max(
+  readSettledMs(), BOOT.subtitleStartMs + BOOT.subtitleDurationMs,
+  marksSettledMs(), membraneSettledMs(),
+)
+ok('everything has settled before the sequence hands off',
+  bootSettled < BOOT.sequenceMs, '(' + bootSettled + 'ms)')
+ok('the sequence holds on the finished composition before it lifts',
+  BOOT.sequenceMs - bootSettled >= 150)
+ok('the whole entry lands near its five-second budget',
+  BOOT.sequenceMs + BOOT.exitMs >= 4600 && BOOT.sequenceMs + BOOT.exitMs <= 5600,
+  '(' + (BOOT.sequenceMs + BOOT.exitMs) + 'ms)')
+ok('a reader who has asked for less motion waits materially less',
+  BOOT.reducedMs < BOOT.sequenceMs / 2)
+
+/* The declared timeline and the stylesheet are the same timeline. */
+ok('boot.css sweeps each row for the declared duration',
+  bootCss.includes('animation: boot-read ' + BOOT.readRowMs + 'ms'))
+ok('boot.css runs the character reveal for the declared duration',
+  bootCss.includes('animation: boot-letter ' + BOOT.letterDurationMs + 'ms'))
+ok('boot.css settles the tracking over the declared duration',
+  bootCss.includes('animation: boot-track ' + BOOT.trackMs + 'ms'))
+ok('boot.css starts the tracking with the first character',
+  cssDelayIn('.boot__letters {') === BOOT.letterStartMs)
+ok('boot.css holds the line beneath until its declared cue',
+  cssDelayIn('.boot__tag {') === BOOT.subtitleStartMs)
+ok('boot.css names the inferred register exactly when the model speaks',
+  cssDelayIn('.boot__key--inferred {') === BOOT.revealMs)
+ok('boot.css names the measured register exactly when the membrane is crossed',
+  cssDelayIn('.boot__key--measured {') === BOOT.membraneMs)
+ok('boot.css redraws a confirmed proposal over the declared duration',
+  bootCss.includes('boot-confirm-ring ' + BOOT.membraneDurationMs + 'ms') &&
+  bootCss.includes('boot-confirm-core ' + BOOT.membraneDurationMs + 'ms'))
+ok('boot.css resolves the field over the declared duration',
+  bootCss.includes('animation: boot-in ' + BOOT.fieldMs + 'ms'))
+ok('the exit fade in boot.css matches the hand-off timer',
+  bootCss.includes('transition: opacity ' + BOOT.exitMs + 'ms'))
+
+/* The graticule. Square cells are a construction, not a hope. */
+ok('the field carries the aspect ratio of its own cell count',
+  bootCss.includes('aspect-ratio: ' + FIELD.cols + ' / ' + FIELD.rows))
+ok('the rule is drawn at exactly that cell count',
+  bootCss.includes('calc(100% / ' + FIELD.cols + ') calc(100% / ' + FIELD.rows + ')'))
+ok('the field is sized against the viewport height as well as its width',
+  /--field-w:\s*min\([^;]*vw[^;]*vh[^;]*\)/.test(bootCss))
+ok('everything on the field is derived from that one measure',
+  cssRule('.boot {').includes('--cell: calc(var(--field-w)'))
+ok('the read lays down one row per graticule row',
+  bootTsx.includes('length: FIELD.rows'))
+ok('the field is marked as an examined area, not a backdrop',
+  ['tl', 'tr', 'bl', 'br'].every((c) => bootCss.includes('.boot__corner--' + c)))
+
+/* Composition: where the proposals are allowed to be. */
+ok('every proposal sits on the graticule', BOOT_MARKS.every((m) =>
+  Number.isInteger(m.col) && Number.isInteger(m.row) &&
+  m.col >= 0 && m.col < FIELD.cols && m.row >= 0 && m.row < FIELD.rows))
+ok('every proposal lands on a cell centre', BOOT_MARKS.every((m) => {
+  const p = markPosition(m)
+  return p.left === (((m.col + 0.5) / FIELD.cols) * 100).toFixed(4) + '%' &&
+    p.top === (((m.row + 0.5) / FIELD.rows) * 100).toFixed(4) + '%'
+}))
+ok('no proposal is allowed to compete with the wordmark', BOOT_MARKS.every((m) =>
+  !(m.row >= 5 && m.row <= 8 && m.col >= 5 && m.col <= 18)))
+ok('proposals appear in the order the read passes over them', BOOT_MARKS.every(
+  (m, i) => i === 0 || m.row >= BOOT_MARKS[i - 1].row))
+ok('two proposals cross the membrane — enough to state it, few enough to mean it',
+  BOOT_MARKS.filter((m) => m.confirmed).length === 2)
+ok('the confirmed proposals are not neighbours in the reveal order', (() => {
+  const idx = BOOT_MARKS.map((m, i) => (m.confirmed ? i : -1)).filter((i) => i >= 0)
+  return idx.length === 2 && idx[1] - idx[0] > 1
+})())
+ok('an unconfirmed proposal carries no confirmation timing at all',
+  BOOT_MARKS.every((m, i) => m.confirmed === (confirmDelay(i) !== null)))
+ok('only a confirmed proposal is redrawn in the measured register',
+  bootCss.includes('.boot__object--confirmed .boot__ring') &&
+  bootCss.includes('.boot__object--confirmed .boot__core') &&
+  cssRule('.boot__ring {').includes('var(--inferred)') &&
+  !cssRule('.boot__ring {').includes('var(--measured)') &&
+  !cssRule('.boot__core {').includes('var(--measured)'))
+
+/* The specimen. Real tissue, laid out so it can never be distorted, and held
+   firmly subordinate to the wordmark standing on it. */
+ok('the mosaic is the declared block',
+  specimenTiles().length === SPECIMEN.cols * SPECIMEN.rows)
+ok('every tile renders square, so the tissue is cropped and never stretched', (() => {
+  // A tile's width is a percentage of the field's width and its height a
+  // percentage of the field's height, so squareness is a statement about both.
+  const t = specimenTiles()[0]
+  const w = parseFloat(t.width) * FIELD.cols
+  const h = parseFloat(t.height) * FIELD.rows
+  // Written to four decimal places, so equal means equal at that precision.
+  return Math.abs(w - h) < 0.01
+})())
+ok('the mosaic covers the field rather than fitting inside it', (() => {
+  const tiles = specimenTiles()
+  const spanned = parseFloat(tiles[0].width) * SPECIMEN.cols
+  const tall = parseFloat(tiles[0].height) * SPECIMEN.rows
+  return spanned >= 100 && Math.abs(tall - 100) < 0.01
+})())
+ok('the overflow is split evenly, so the crop is centred', (() => {
+  const tiles = specimenTiles()
+  const left = parseFloat(tiles[0].left)
+  const right = 100 - (left + parseFloat(tiles[0].width) * SPECIMEN.cols)
+  return Math.abs(left - right) < 0.01 && left <= 0
+})())
+ok('the tiles tile: no gaps and no double-drawn columns', (() => {
+  const tiles = specimenTiles()
+  const w = parseFloat(tiles[0].width)
+  return tiles.every((t, i) => {
+    const c = i % SPECIMEN.cols, r = Math.floor(i / SPECIMEN.cols)
+    return Math.abs(parseFloat(t.left) - (parseFloat(tiles[0].left) + c * w)) < 1e-3 &&
+      Math.abs(parseFloat(t.top) - r * parseFloat(tiles[0].height)) < 1e-3
+  })
+})())
+ok('the pyramid overlap pixel is cropped back off',
+  cssRule('.boot__tissue > i {').includes('background-size: 100.7874% 100.7874%'))
+ok('the specimen is the ground, not the subject', (() => {
+  const m = /\.boot__tissue \{[\s\S]*?opacity: ([\d.]+);/.exec(bootCss)
+  return m !== null && Number(m[1]) > 0 && Number(m[1]) <= 0.2
+})())
+ok('the specimen resolves into focus as the read begins',
+  cssDelayIn('.boot__tissue {') === BOOT.readStartMs &&
+  /from \{ filter: [^}]*blur\([\d.]+px\)/.test(keyframes('boot-focus')) &&
+  /to\s+\{ filter: [^}]*blur\(0\)/.test(keyframes('boot-focus')))
+ok('the field still reads as read if the pyramid is not on disk',
+  /\.boot__field \{[\s\S]*?background-color: color-mix\(in srgb, var\(--text\)/.test(bootCss))
+ok('the tissue sits under the read and the graticule over it', (() => {
+  const i = bootTsx.indexOf('className="boot__tissue"')
+  const j = bootTsx.indexOf('className="boot__read"')
+  const k = bootTsx.indexOf('className="boot__grid"')
+  return i > 0 && j > i && k > j
+})())
+ok('the graticule rules the specimen at the declared cell count',
+  cssRule('.boot__grid {').includes(
+    'background-size: calc(100% / ' + FIELD.cols + ') calc(100% / ' + FIELD.rows + ')'))
+ok('a proposal is separated from the tissue it sits on',
+  cssRule('.boot__ring {').includes('box-shadow'))
+ok('the wordmark is given ground to stand on',
+  /\.boot__centre::before \{[\s\S]*?radial-gradient\([\s\S]*?var\(--bg-0\)/.test(bootCss))
+ok('the type paints over that ground rather than under it',
+  cssRule('.boot__word {').includes('position: relative') &&
+  cssRule('.boot__tag {').includes('position: relative'))
+
+/* Motion character: restrained, and the product's own easing throughout. */
+ok('the entry eases the way the rest of the product eases',
+  !bootCssCode.includes('cubic-bezier') &&
+  (bootCss.match(/var\(--ease\)/g) ?? []).length >= 8)
+ok('nothing overshoots, springs or rebounds',
+  !/elastic|overshoot|spring/i.test(bootCssCode))
+ok('nothing spins and nothing pulses forever',
+  !/rotate\(/.test(bootCssCode) && !/infinite/.test(bootCssCode))
+ok('the wordmark resolves rather than arrives', (() => {
+  const kf = keyframes('boot-letter')
+  return kf.includes('blur(') && kf.includes('translate3d') && !kf.includes('scale(')
+})())
+ok('the read is compositor work, not layout work', (() => {
+  const kf = keyframes('boot-read')
+  return kf.includes('scaleX(0)') && kf.includes('scaleX(1)') &&
+    !kf.includes('width') && !kf.includes('left')
+})())
+ok('the tracking closes rather than opens', (() => {
+  const m = /from \{ letter-spacing: ([\d.]+)em[\s\S]*?to\s+\{ letter-spacing: ([\d.]+)em/
+    .exec(keyframes('boot-track'))
+  return m !== null && Number(m[1]) > Number(m[2]) &&
+    cssRule('.boot__letters {').includes('letter-spacing: ' + m[2] + 'em')
+})())
+
+/* Colour carries meaning here, so it comes only from the tokens that carry it. */
+ok('the entry writes no colour of its own',
+  !/#[0-9a-fA-F]{3,8}\b/.test(bootCssCode) && !/rgba?\(/.test(bootCssCode))
+ok('the two registers are the product\'s own evidence tokens',
+  bootCss.includes('var(--inferred)') && bootCss.includes('var(--measured)'))
+ok('the entry stands on the ground the application stands on',
+  cssRule('.boot {').includes('background: var(--bg-0)'))
+ok('the wordmark is set in the product\'s display face',
+  cssRule('.boot__word {').includes('font-family: var(--font-display)'))
+ok('the instrument text is set in the product\'s mono face',
+  cssRule('.boot__tag {').includes('font-family: var(--font-mono)') &&
+  cssRule('.boot__base {').includes('font-family: var(--font-mono)'))
+ok('the entry fetches no font of its own', !bootCss.includes('@import'))
+
+/* Architecture: the entry is a leaf, and it costs nothing. */
+ok('the entry adds no dependency', (() => {
+  const imports = bootTsx.match(/from '[^']+'/g) ?? []
+  return imports.every((s) => s === "from 'react'" || s === "from './timing'" ||
+    s === "from './boot.css'")
+})())
+ok('the choreography module depends on nothing at all',
+  !bootTiming.includes('import '))
+ok('the entry reaches into no domain or application state',
+  !bootTsx.includes('@/domain') && !bootTsx.includes('@/state'))
+ok('the entry animates nothing on the main thread',
+  !bootTsx.includes('requestAnimationFrame') && !bootTsx.includes('setInterval'))
+ok('the entry does not navigate',
+  !bootTsx.includes('Router') && !bootTsx.includes('useNavigate'))
+ok('the entry loads no remote asset and no stock imagery', (() => {
+  const urls = [...bootTsx.matchAll(/url\(\${?([^)$]*)/g)].map((m) => m[1])
+  return !bootTsxCode.includes('<img') && !bootCssCode.includes('url(') &&
+    urls.every((u) => u.startsWith('t.url') || u === '') &&
+    !/https?:/.test(bootTsxCode) && !/https?:/.test(bootCssCode)
+})())
+ok('the tissue is the case the workspace itself streams',
+  specimenTiles().every((t) => t.url.startsWith('/dzi/morpha-slide_files/')))
+ok('the router mounts beneath the entry rather than after it',
+  appTsx.includes('{hydrated && <RouterProvider') && appTsx.includes('{booting && <BootScreen'))
+
+/* Accessibility and exit. */
+ok('the entry is announced once, in words, not as decoration',
+  bootTsx.includes('role="status"') &&
+  bootTsx.includes('<span className="sr-only">MORPHA'))
+ok('the drawn sequence is hidden from assistive technology',
+  bootTsx.includes('className="boot__stage" aria-hidden="true"'))
+ok('the entry honours a request for reduced motion',
+  bootTsx.includes("matchMedia?.('(prefers-reduced-motion: reduce)')") &&
+  bootCss.includes('@media (prefers-reduced-motion: reduce)'))
+const reducedBlock = bootCss.slice(bootCss.indexOf('@media (prefers-reduced-motion: reduce)'))
+ok('reduced motion stills every stage, not merely the wordmark',
+  ['.boot__frame,', '.boot__tissue,', '.boot__cover,', '.boot__letters,', '.boot__object,',
+    '.boot__tag,'].every((s) => reducedBlock.includes(s)))
+ok('reduced motion still shows the finished composition, membrane included',
+  reducedBlock.includes('.boot__cover { transform: scaleX(0); }') &&
+  reducedBlock.includes('.boot__head { display: none; }') &&
+  /\.boot__tissue \{ filter: saturate\([\d.]+\) contrast\([\d.]+\); \}/.test(reducedBlock) &&
+  reducedBlock.includes('border-color: var(--measured)'))
+ok('the entry can be skipped without adding a control',
+  bootTsx.includes("addEventListener('pointerdown'") &&
+  bootTsx.includes("addEventListener('keydown'"))
+ok('the hand-off runs exactly once however it is triggered',
+  bootTsx.includes('if (leavingRef.current) return'))
+ok('the entry cleans up every timer it starts',
+  bootTsx.includes('window.clearTimeout(t)') && bootTsx.includes('removeEventListener'))
 
 console.log('\n— QC geometry —')
 const q = m.qcRegions[0]
