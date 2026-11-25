@@ -1,6 +1,6 @@
 <div align="center">
 
-# MORPHA 
+# MORPHA
 
 ### A reading instrument for digital pathology that AI accelerates — not an AI product with a viewer attached.
 
